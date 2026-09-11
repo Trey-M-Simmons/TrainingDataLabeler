@@ -1,55 +1,65 @@
+"""
+Author: Trey Simmons
+Created: 3/17/26
+Date of Last Edit: 9/11/26
+Description: This is the main file for the data labeling program. It contains the GUI and the main function that run the program. 
+"""
+
 
 import tkinter as tk
 from tkinter import dnd
 from tkinter import ttk
 from tkinter import filedialog
+from tkinter import messagebox
 from PIL import Image, ImageTk
 import LabelerBackend as LB
 import pandas as pd
 import os
 
-
-
-
-
-
 def main():
     MainPage = tk.Tk()
-    LabelsDF = pd.read_csv("F:/bac files/ImageLabeler/DataBase/Labels.csv")
+    LabelsDF = pd.read_csv("./DataBase/Labels.csv")
     LabelsObj = Labels(LabelsDF)
 
     SORT(MainPage, LabelsObj)
 
 
+######################### SORTING SECTION ###########################
+def SORT(MainPage, LabelsObj)->None:
+    #get directory from user
+    directoryStr = filedialog.askdirectory(title="Select an Image or Video Folder")
+    Directories = LB.Directories()
+    Directories.setOldDataDirect(directoryStr)
+    Directories.setNewDataDirect(directoryStr)
 
+    LB.setDataBaseFolder(Directories)
 
-########## SORTING SECTION ##############
-def SORT(MainPage, LabelsObj):
-
-    directoryStr = "F:/bac files/ImageLabeler/Testimgs"
-    #directoryStr =
-    RootGroup = LB.Group()
-    RootGroup.populateItems(LB.getAllFiles(directory=directoryStr), directoryStr + "/")
-
-    SortPage = sortPage(MainPage=MainPage, LabelsObj=LabelsObj, rootGroup=RootGroup)
-
-    MainPage.geometry("1000x1000")
+    RootGroup = LB.initializeGroupTree(directoryObj = Directories)
+    
+    SortPage = sortPage(MainPage=MainPage, LabelsObj=LabelsObj, rootGroup=RootGroup, DirectoriesObj=Directories)
+    MainPage.title("Data Labeler")
+    MainPage.geometry("1500x1500")
     MainPage.mainloop()
 
+#Main page that the user will see, the left side of the page will have the parent group/items while the right side will have 
+# all of the children groups of the current parent. The user will then be able to drag and drop items from the parent group into the child groups, 
+# as well as create new child groups and delete child groups. The user may choose to sort a child group, making that child the new parent group and 
+# that child's children the new current child groups.
 class sortPage:
-    def __init__(self, MainPage, LabelsObj, rootGroup):
+    def __init__(self, MainPage, LabelsObj, rootGroup, DirectoriesObj):
 
         self.LabelsObj = LabelsObj
         self.parentGroup = rootGroup
         self.RootGroup = rootGroup
         self.ParentGroupWidget : GroupWidget = None
         self.ChildGroupWidgets = []
-        self.SelectedChildWidget :GroupWidget = None
+        self.SelectedChildWidget : GroupWidget = None
 
         #database and file directories
-        self.oldDirectory = "F:/bac files/ImageLabeler/Testimgs/"
+        self.DirectoriesObj = DirectoriesObj
+        self.oldDirectory = "./Testimgs/"
         self.newDirectory = self.oldDirectory
-        self.csvDirectory = "F:/bac files/ImageLabeler/DataBase/"
+        self.csvDirectory = "./DataBase/"
 
 
         #menu bar
@@ -57,15 +67,15 @@ class sortPage:
         self.MenuBar = tk.Menu(MainPage)
 
         self.FileMenu = tk.Menu(self.MenuBar, tearoff=0)
-        self.FileMenu.add_command(label="Open File", command=self.setImageFolder)
+        self.FileMenu.add_command(label="Open Image Folder", command=self.setImageFolder)
 
         self.MenuBar.add_cascade(label="File", menu=self.FileMenu)
 
 
         self.SortMenu = tk.Menu(self.MenuBar, tearoff=0)
-        self.SortMenu.add_command(label="Commit and Exit", command=self.commitGroups)
+        self.SortMenu.add_command(label="Commit to Database", command=self.commitGroups)
 
-        self.MenuBar.add_cascade(label="Exit", menu=self.SortMenu)
+        self.MenuBar.add_cascade(label="Commmit", menu=self.SortMenu)
 
         MainPage.config(menu=self.MenuBar)
 
@@ -115,8 +125,10 @@ class sortPage:
         self.populateLeft()
         self.populateRight()
 
+    ######## GUI Widget Setting Functions ########
 
-    def populateLeft(self):
+    #populate the left side of the GUI with a GroupWidget of the parent group and its item widgets
+    def populateLeft(self)->None:
         if(self.ParentGroupWidget == None):
             self.ParentGroupWidget = GroupWidget(self.LeftScrollFrame.InnerFrame, self.parentGroup, LabelsObj=self.LabelsObj, maxItemHeight=900, maxItemWidth=900)
             self.ParentGroupWidget.pack(fill="y")
@@ -128,27 +140,32 @@ class sortPage:
             self.ParentGroupWidget.setLabelText()
             self.ParentGroupWidget.setItemWidgets()
             
-
-    def updateLeft(self):
+    #set the item widgets of the parent group widget
+    def updateLeft(self)->None:
         if(self.ParentGroupWidget != None):
             self.ParentGroupWidget.setItemWidgets()
 
-    def populateRight(self):
+    #populate the right side of the GUI with GroupWidgets of the current child groups 
+    def populateRight(self)->None:
         for childWidget in self.ChildGroupWidgets:
             childWidget.destroy()
         
         self.ChildGroupWidgets = []
         
-        for child in self.parentGroup.childGroups:
+        #for child in self.parentGroup.childGroups:
+        for childIndex in range(0, len(self.parentGroup.childGroups)):
+            child = self.parentGroup.childGroups[childIndex]
             newChildWidget = GroupWidget(self.RightScrollFrame.InnerFrame, child, LabelsObj=self.LabelsObj, maxItemHeight=900, maxItemWidth=900, itemPack="top")
-            newChildWidget.pack(fill="y")
+            #newChildWidget.pack(fill="y")
+            newChildWidget.grid(row=childIndex, column=0)
             newChildWidget.bind("<Button-1>", self.selectChildWidget)
             self.ChildGroupWidgets.append(newChildWidget)
 
         #reset selected
         self.SelectedChildWidget = None
 
-    def updateRight(self):
+    #iterated through the child groups and child widgets, deleting or creating widgets as needed to match the child groups
+    def updateRight(self)->None:
         groupIndex = 0
         while(groupIndex < len(self.parentGroup.childGroups)):
 
@@ -165,9 +182,10 @@ class sortPage:
             #if the widget was found, delete widgets that no longer have a corresponding item
             if(foundWidgetFlag == True):
                 #delete all widgets between the group index and the found widget index
-                for deleteIndex in range(groupIndex, foundWidgetIndex):
-                    self.ChildGroupWidgets[deleteIndex].destroy()
-                    self.ChildGroupWidgets.pop(deleteIndex)
+                while(groupIndex < foundWidgetIndex):
+                    self.ChildGroupWidgets[groupIndex].destroy()
+                    self.ChildGroupWidgets.pop(groupIndex)
+                    foundWidgetIndex -= 1
             else:#if the widget wasnt found, create and add it
                 newChildWidget = GroupWidget(self.RightScrollFrame.InnerFrame, self.parentGroup.childGroups[groupIndex], LabelsObj=self.LabelsObj, maxItemHeight=900, maxItemWidth=900, itemPack="top")
                 newChildWidget.bind("<Button-1>", self.selectChildWidget)
@@ -175,49 +193,48 @@ class sortPage:
 
             groupIndex += 1
         
+        #the above alg wont delete widgets at the end of the list that do not have a corresponding item
+        childGroupLen = len(self.parentGroup.childGroups)
+        childWidgetLen = len(self.ChildGroupWidgets)
+        if(childGroupLen < childWidgetLen):
+            while(childGroupLen < childWidgetLen):
+                self.ChildGroupWidgets.pop().destroy()
+                childWidgetLen -=1
+             
         #clean up work, re-grid the remaining widgets
-        for index in range(0, len(self.ChildGroupWidgets)):
+        for index in range(0, childWidgetLen):
            self.ChildGroupWidgets[index].grid(row=index, column=0)
 
         #reset selected
         self.SelectedChildWidget = None
 
-        """
-        ##### OLD
-        for childWidget in self.ChildGroupWidgets:
-            childWidget.destroy()
-        
-        self.ChildGroupWidgets = []
-        
-        for child in self.parentGroup.childGroups:
-            newChildWidget = GroupWidget(self.RightScrollFrame.InnerFrame, child, LabelsObj=self.LabelsObj, maxItemHeight=900, maxItemWidth=900, itemPack="top")
-            newChildWidget.pack(fill="y")
-            newChildWidget.bind("<Button-1>", self.selectChildWidget)
-            self.ChildGroupWidgets.append(newChildWidget)"""
+    ######### User Interaction Functions ########
 
-
-    def selectChildWidget(self, event):
+    #selects a child widget and highlights it, while unhighlighting the previously selected child widget
+    def selectChildWidget(self, event)->None:
         if(self.SelectedChildWidget != None):                
             self.SelectedChildWidget.configure(bg="lightblue")
         self.SelectedChildWidget = event.widget
         self.SelectedChildWidget.configure(bg="yellow")
-    
-    def deleteChildWidget(self, event):
+
+    #delete the group of the selected child widget, and update the GUI
+    def deleteChildWidget(self, event)->None:
         if(self.SelectedChildWidget != None):
-            print(len(self.SelectedChildWidget.Group.subjects))
             self.parentGroup.deleteChild(self.SelectedChildWidget.Group)
             self.updateLeft()
             self.updateRight()
 
 
     #allows user to "drop down" a tier in the tree and sort the selected child group
-    def sortChildGroup(self, event):
+    def sortChildGroup(self, event)->None:
         if(self.SelectedChildWidget != None):
             self.parentGroup = self.SelectedChildWidget.Group
+            self.parentGroup.loadGroupChildren()
             self.populateLeft()
             self.populateRight()
 
-    def sortParentGroup(self, event):
+    #allows the user to go back up a tier in the tree and sort the current parent group
+    def sortParentGroup(self, event)->None:
         if(self.parentGroup.parent != None):
             #sets the current parent group to the parent of the current parent
             #essentially going "up" one level in the tree
@@ -226,42 +243,57 @@ class sortPage:
             self.populateRight()
 
     #create new child button
-    def CreateChildGroup(self, event):
+    def CreateChildGroup(self, event)->None:
         self.parentGroup.createChildGroup()
         self.populateRight()
 
-    def commitGroups(self):
-        print("committed!")
-        LB.writeTreeBoot(rootGroup=self.RootGroup, databaseDirect=self.csvDirectory, oldFileDirect=self.oldDirectory, newFileDirect=self.newDirectory)
+    ########## Menu Bar Functions ########
+
+    #save all of the changes to the database
+    def commitGroups(self)-> None:
+        #write to the db
+        LB.writeTreeBoot(rootGroup=self.RootGroup, 
+                        databaseDirect=self.DirectoriesObj.getDataBaseDirect(),
+                        oldFileDirect=self.DirectoriesObj.getOldDataDirect(),
+                        newFileDirect=self.DirectoriesObj.getNewDataDirect())
+        
+        #reset GUI to the root group, and reload the root groups children
+        self.parentGroup = self.RootGroup
+        self.RootGroup.childrenLoaded = False
+        self.RootGroup.loadGroupChildren()
         self.populateLeft()
         self.populateRight()
-        #self.parentGroup = None
 
-    def setDirectory(self, directory, title):
-        return filedialog.askdirectory(title=title)
+    ##### Set Directories #####
+    def setImageFolder(self)->None:
+        #prompt user to save the current sorted data to the database
+        if(messagebox.askyesno(title="Would you like to save sorted data to the database?", message="Would you like to set a save location for the sorted files?")):
+            self.commitGroups()
 
-    def setImageFolder(self):
-        self.oldDirectory = filedialog.askdirectory(title="Select an Image or Video Folder")
-        print(self.oldDirectory)
-        #self.ParentGroupWidget.deleteItemWidgets()#if this isnt called there will still be old item widgets in the frame
+        #prompt and set the old directory
+        self.DirectoriesObj.setOldDataDirect(filedialog.askdirectory(title="Select an Image or Video Folder"))
+
         #Create new root group and populate it
-        self.RootGroup = LB.Group()
-        print(len(self.RootGroup.items))#when you create a new group it adds the new items to the old ones? CHECK FOR BUG NOW
-        self.RootGroup.populateItems(LB.getAllFiles(directory=self.oldDirectory), self.oldDirectory + "/")
+        self.RootGroup = LB.initializeGroupTree(directoryObj = self.DirectoriesObj)
         self.parentGroup = self.RootGroup
-        print(len(self.parentGroup.items))#when you create a new group it adds the new items to the old ones?
+
         self.populateLeft()
         self.populateRight()
     
-    def setSaveFolder(self):
-        self.newDirectory = filedialog.askdirectory(title="Select Save Location")
+    def setSaveFolder(self)->None:
+        self.DirectoriesObj.setNewDataDirect(filedialog.askdirectory(title="Select Save Location"))
 
-    def setDataBaseFolder(self):
-        self.csvDirectory = filedialog.askdirectory(title="Select Database Folder")
-
-
+    def setDataBaseFolder(self)->None:
+        LB.setDataBaseFolder(self.DirectoriesObj)
 
 
+
+
+                
+
+
+
+#widget class that displays a group and its children
 class GroupWidget(tk.Frame):
     
     def __init__(self, ParentWidget, Group, LabelsObj, width=800, height=1200, itemPack="top", maxItemHeight=800, maxItemWidth=800, maxItemWidgets = 30):
@@ -275,7 +307,7 @@ class GroupWidget(tk.Frame):
 
         self.Labels = LabelsObj
 
-        def labelKindSelected(event):
+        def labelKindSelected(event)-> None:
             comboBox = event.widget
             labelType = comboBox.get()
 
@@ -291,18 +323,14 @@ class GroupWidget(tk.Frame):
         #combo boxes
         self.LabelKindComboBox = ttk.Combobox(self, values=["subjects", "creator", "tags"], state="readonly")
         self.LabelKindComboBox.set("Labels")
-        #self.LabelKindComboBox.pack(side="top")
         
         self.LabelKindComboBox.bind("<<ComboboxSelected>>", labelKindSelected)
 
         self.LabelsComboBox = ttk.Combobox(self, values=self.Labels.subjectLabels)
         self.LabelsComboBox.set("Unknown")
-        #self.LabelsComboBox.pack(side='top')
 
-        #button
-            ##add button
         #this handles both selecting a label and if a new label is typed in
-        def labelSelected(event):
+        def labelSelected(event)-> None:
             labelType = self.LabelKindComboBox.get()
             labelToAdd = self.LabelsComboBox.get()
 
@@ -320,11 +348,10 @@ class GroupWidget(tk.Frame):
             self.setLabelText()#update label text
         
         self.AddLabelButton = tk.Button(self, text="Add Label")
-        #self.AddLabelButton.pack(side="top")
         self.AddLabelButton.bind("<Button-1>", labelSelected)
 
             ## remove button
-        def removeLabel(event):
+        def removeLabel(event)-> None:
             labelType = self.LabelKindComboBox.get()
             labelToAdd = self.LabelsComboBox.get()
 
@@ -339,16 +366,10 @@ class GroupWidget(tk.Frame):
             self.setLabelText()#update label text
 
         self.RemoveLabelButton = tk.Button(self, text="Remove Label")
-        #self.RemoveLabelButton.pack(side="top")
         self.RemoveLabelButton.bind("<Button-1>", removeLabel)
 
         #if this is the widget for the root group, do not display comboboxes/buttons
         if(self.Group.parent != None):
-            """self.LabelKindComboBox.pack(side="top")
-            self.LabelsComboBox.pack(side="top")
-            self.AddLabelButton.pack(side="top")
-            self.RemoveLabelButton.pack(side="top")"""
-
             self.LabelKindComboBox.grid(row=0, column=0)
             self.LabelsComboBox.grid(row=1, column=0)
             self.AddLabelButton.grid(row=2, column=0)
@@ -358,13 +379,12 @@ class GroupWidget(tk.Frame):
         #label
         self.LabelsWidget = tk.Label(self, text='')
         self.setLabelText()
-        #self.LabelsWidget.pack(side="top")
         self.LabelsWidget.grid(row=4, column=0)
 
         #import items
         self.setItemWidgets()
 
-    #call backs for drag and drop features
+    ######## Drag and Drop Call backs #########
     def dnd_accept(self, source, event):
         return self#this is recquired, typically is used to check if object being dropped is a valid one
         
@@ -377,23 +397,27 @@ class GroupWidget(tk.Frame):
         ""
 
     def dnd_motion(self, source, event):
-        #print("being dragged")
         """"""
 
     def dnd_commit(self, source, event):
         self.Group.addItem(source.item)
         self.setItemWidgets()
 
+    ######## Update Widget Functions ########
 
-    def deleteItemWidgets(self):
+    def deleteItemWidgets(self)-> None:
         #inefficient, need to rewrite later
         for itemWidget in self.ItemWidgetList:
             itemWidget.destroy()
 
         self.ItemWidgetList = []
 
+    
+
+    #iterated through the items and item widgets, deleting or creating widgets as needed to match the items
+    #Very similar to updateRight() in SORTPAGE
     #CHANGE SYSTEM LATER IN ORDER TO CLEAN UP .configure jitteryness
-    def setItemWidgets(self):
+    def setItemWidgets(self)-> None:
         itemIndex = 0
         while(itemIndex < self.maxItemWigets - 1):
             if(itemIndex >= len(self.Group.items)):
@@ -425,12 +449,10 @@ class GroupWidget(tk.Frame):
         #clean up work, re-grid the remaining widgets
         for index in range(0, len(self.ItemWidgetList)):
             self.ItemWidgetList[index].grid(row=index + 6, column=0)
-            #note: the +5 is so that the item widgets are not in the same row as the buttons/labels
+            #note: the +6 is so that the item widgets are not in the same row as the buttons/labels
 
-
-    
     #creates/sets the str for the label widget
-    def setLabelText(self):
+    def setLabelText(self)-> None:
         if(self.Group.parent != None):
             textStr = "SUBJECTS: "
             for subjLabel in self.Group.subjects:
@@ -448,7 +470,7 @@ class GroupWidget(tk.Frame):
         else:
             self.LabelsWidget["text"] = "Root Group"
 
-
+#widget class that displays a single item
 class ItemWidget(tk.Frame):
     def __init__(self, parent, item, maxItemHeight=400, maxItemWidth=300):
 
@@ -472,7 +494,6 @@ class ItemWidget(tk.Frame):
             self.text.pack(padx=20, pady=5)
         else:
             self.WidgetLabel = tk.Label(self, text="Unable to find image", width=maxItemWidth)
-            print("unable to find image " + item.fileName)
 
         self.WidgetLabel.bind("<ButtonPress-1>", self.onDragStart)
         self.bind("<ButtonPress-1>", self.onDragStart)
@@ -480,7 +501,7 @@ class ItemWidget(tk.Frame):
 
 
 
-    #call backs for drag and drop features
+    ###### call backs for drag and drop features ######
     def onDragStart(self, event):
         dnd.dnd_start(source=self, event=event)
 
@@ -510,7 +531,6 @@ class ItemWidget(tk.Frame):
         ""
 
     def dnd_motion(self, source, event):
-        #print("being dragged")
         ""
 
     def dnd_commit(self, source, event):
@@ -518,7 +538,7 @@ class ItemWidget(tk.Frame):
         self.groupWidget.Group.addItemInFrontOf(self.item, source.item)
         self.groupWidget.setItemWidgets()
 
-        
+
 class ScrollableFrame(tk.Frame):
     def __init__(self, ParentWidget, width=800, height=1200, itemPack="top", maxItemHeight=800, maxItemWidth=800):
         super().__init__(ParentWidget, bg="lightblue", bd=2, relief="groove", width=width, height=height)
@@ -556,31 +576,32 @@ class Labels():
 
         self.getLabels()
 
-    def getLabels(self):
+    #pull the labels from the df
+    def getLabels(self)->None:
         self.subjectLabels = self.LabelsCSV["subjects"].dropna().to_list()
         self.creatorLabels = self.LabelsCSV["creators"].dropna().to_list()
         self.tagLabels = self.LabelsCSV["tags"].dropna().to_list()
+
+    ##### Put Label Functions #####
     
     #if a label is already in the list, move it to the top, otherwise it is added to the top
-    def putLabelOnTop(self, LabelList, addlabel):
+    #helper func to the below put functions
+    def putLabelOnTop(self, LabelList, addlabel)->None:
         if(addlabel in LabelList):
             LabelList.remove(addlabel)
         LabelList.append(addlabel)
     
-    def putSubject(self, label):
+    def putSubject(self, label)->None:
         self.putLabelOnTop(LabelList=self.subjectLabels, addlabel=label)
     
-    def putCreator(self, label):
+    def putCreator(self, label)->None:
         self.putLabelOnTop(LabelList=self.creatorLabels, addlabel=label)
 
-    def putTag(self, label):
+    def putTag(self, label)->None:
         self.putLabelOnTop(LabelList=self.tagLabels, addlabel=label)
 
-    #add remove labels later
-
-
-        
-
+    ##### Remove Label Functions #####
+    #not finished yet
 
 if __name__ == "__main__":
     main()
