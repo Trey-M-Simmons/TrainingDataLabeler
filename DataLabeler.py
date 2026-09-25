@@ -98,7 +98,7 @@ class sortPage:
         self.LeftFrame.rowconfigure(1, weight=1)
         
         self.SortGroupAbove = tk.Button(self.LeftFrame, text="Back")
-        self.SortGroupAbove.grid(row=0, column=0, pady=10, padx=10)
+        self.SortGroupAbove.grid(row=0, column=0, pady=33, padx=10)
         self.SortGroupAbove.bind("<Button-1>", self.sortParentGroup)
 
         #allows the widgets inside of self.LeftScrollFrame.InnerFrame to be vertically scrolled
@@ -159,8 +159,6 @@ class sortPage:
             childWidget.destroy()
         
         self.ChildGroupWidgets = []
-
-        #self.RightScrollFrame.InnerFrame.columnconfigure(0, weight=1)
         
         #for child in self.parentGroup.childGroups:
         for childIndex in range(0, len(self.parentGroup.childGroups)):
@@ -319,12 +317,6 @@ class GroupWidget(tk.Frame):
         self.ItemWidgetList = []
         self.maxItemWidgets = maxItemWidgets #max number of item widgets to be shown
 
-        #the limit indexes of the items to be put into itemWidgets
-        self.minItemIndex: int = 0
-        #self.maxItemIndex: int = len(Group.items) - 1
-
-        self.prevTopIndex: int = 0
-
         #the position of each each item widget in the scroll frame
         self.itemWidgetYPos: list[int] = [0]*len(self.Group.items)
 
@@ -463,7 +455,7 @@ class GroupWidget(tk.Frame):
         for x in range(self.maxItemWidgets):
             if(x > len(self.Group.items)):
                 break
-            newItemWidget = ItemWidget(self.ItemScrollFrame.InnerFrame, self, None, maxItemWidth=self.maxItemWidth, maxItemHeight=self.maxItemHeight)
+            newItemWidget = ItemWidget(self.ItemScrollFrame.InnerFrame, self, None)
             self.ItemWidgetList.append(newItemWidget)
 
         self.setItemWidgetYPos()
@@ -553,14 +545,6 @@ class GroupWidget(tk.Frame):
             self.after(16, self.renderItemWidgets)
 
 
-    #gets an estimated scroll region height based on the current items
-    def getScrollableHeight(self)-> int:
-        totalHeight: int = 0
-        for item in self.Group.items:
-            totalHeight += item.getHeight() + 50
-        return totalHeight
-
-
 
     #creates/sets the str for the label widget
     def setLabelText(self)-> None:
@@ -585,7 +569,7 @@ class GroupWidget(tk.Frame):
 
 #widget class that displays a single item
 class ItemWidget(tk.Frame):
-    def __init__(self, parent, groupWidget, item, maxItemHeight=400, maxItemWidth=300):
+    def __init__(self, parent, groupWidget, item):
 
         super().__init__(parent, bg="lightblue", bd=2, relief="groove")
         self.groupWidget = groupWidget
@@ -609,23 +593,22 @@ class ItemWidget(tk.Frame):
         
         IMG = self.item.getIMG()
         if(IMG != None):
-            self.WidgetLabel.config(image=IMG, text="", width=self.item.maxItemWidth)
+            self.WidgetLabel.config(image=IMG, text="", width=self.item.maxItemHeight)
             self.WidgetLabel.image = IMG
         
             self.text.config(text=self.item.fileName)
 
-             #bind callbacks
+            #bind callbacks
             self.WidgetLabel.bind("<ButtonPress-1>", self.onDragStart)
             self.bind("<ButtonPress-1>", self.onDragStart)
         else:
-            self.WidgetLabel.config(text="Unable to find image", width=self.item.maxItemWidth)
+            self.WidgetLabel.config(text="Unable to find image", width=self.item.maxItemHeight)
 
 
 
     ###### call backs for drag and drop features ######
     def onDragStart(self, event):
         dnd.dnd_start(source=self, event=event)
-
         
     def dnd_end(self, target, event):
         #if item was dropped into a groupWidget
@@ -667,7 +650,7 @@ class ItemWidget(tk.Frame):
 
 
 class ScrollableFrame(tk.Frame):
-    def __init__(self, ParentWidget, width=800, height=1200, itemPack="top", maxItemHeight=800, maxItemWidth=800):
+    def __init__(self, ParentWidget, width=800, height=1200):
         super().__init__(ParentWidget, bg="lightblue", bd=2, relief="groove", width=width, height=height)
         self.rowconfigure(0, weight=1)
         self.columnconfigure(0, weight=1)
@@ -692,6 +675,9 @@ class ScrollableFrame(tk.Frame):
 
         self.Window = self.InnerCanvas.create_window((0,0), window=self.InnerFrame, anchor="nw", width=self.winfo_width())
 
+        self.InnerCanvas.bind("<Enter>", self.onEnter)
+        self.InnerCanvas.bind("<Leave>", self.onLeave)
+
 
     #updates the window on scroll
     def updateRegion(self, event):
@@ -714,7 +700,23 @@ class ScrollableFrame(tk.Frame):
 
         if(self.ScrollCallBack != None):
             self.ScrollCallBack()
-    
+
+    #on user scroll wheel, for both linux and windows
+    def onScrollWheel(self, event):
+        if event.num == 5 or event.delta > 0:
+            self.onScroll("scroll", 1, "units")
+        if event.num == 4 or event.delta < 0:
+            self.onScroll("scroll", -1, "units")
+
+    def onEnter(self, event):
+        self.InnerCanvas.bind_all("<MouseWheel>", self.onScrollWheel)# Windows
+        self.InnerCanvas.bind_all("<Button-4>", self.onScrollWheel)# Linux scroll up
+        self.InnerCanvas.bind_all("<Button-5>", self.onScrollWheel)# Linux scroll down
+
+    def onLeave(self, event):
+        self.InnerCanvas.unbind_all("<MouseWheel>")
+        self.InnerCanvas.unbind_all("<Button-4>")
+        self.InnerCanvas.unbind_all("<Button-5>")
 
 
 
