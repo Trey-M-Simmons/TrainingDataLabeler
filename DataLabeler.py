@@ -1,8 +1,10 @@
 """
 Author: Trey Simmons
 Created: 3/17/26
-Date of Last Edit: 9/28/26
+Date of Last Edit: 9/29/26
 Edit: Bug fixes: Fixed issue with scroll direction in the scrollable frames.
+                Fixed database issue where a new group would be assigned the same group number as its parent
+
 Description: This is the main file for the data labeling program. It contains the GUI and the main function that run the program. 
 """
 
@@ -22,25 +24,28 @@ import os
 
 def main():
     MainPage = tk.Tk()
-    LabelsDF = pd.read_csv("./DataBase/Labels.csv")
-    LabelsObj = LB.Labels(LabelsDF)
+    LabelsObj = None
 
-    SORT(MainPage, LabelsObj)
+    DirectoriesObj = LB.Directories()
+
+    SORT(MainPage, LabelsObj, DirectoriesObj)
+
+
 
 
 ######################### SORTING SECTION ###########################
-def SORT(MainPage, LabelsObj: LB.Labels)->None:
+def SORT(MainPage, LabelsObj: LB.Labels, DirectoriesObj: LB.Directories)->None:
     #get directory from user
     directoryStr = filedialog.askdirectory(title="Select an Image or Video Folder")
-    Directories = LB.Directories()
-    Directories.setOldDataDirect(directoryStr)
-    Directories.setNewDataDirect(directoryStr)
+    DirectoriesObj.setOldDataDirect(directoryStr)
+    DirectoriesObj.setNewDataDirect(directoryStr)
+    DirectoriesObj.setDataBaseDirect()
 
-    LB.setDataBaseFolder(Directories)
+    LabelsObj = LB.Labels(pd.read_csv(DirectoriesObj.getDataBaseDirect() + "Labels.csv"))
 
-    RootGroup = LB.initializeGroupTree(directoryObj = Directories)
+    RootGroup = LB.initializeGroupTree(directoryObj = DirectoriesObj)
     
-    SortPage = sortPage(MainPage=MainPage, LabelsObj=LabelsObj, rootGroup=RootGroup, DirectoriesObj=Directories)
+    SortPage = sortPage(MainPage=MainPage, LabelsObj=LabelsObj, rootGroup=RootGroup, DirectoriesObj=DirectoriesObj)
     MainPage.title("Data Labeler")
     MainPage.geometry("1500x1500")
     MainPage.mainloop()
@@ -59,27 +64,28 @@ class sortPage:
         self.ChildGroupWidgets = []
         self.SelectedChildWidget : GroupWidget = None
 
+        self.MainPage = MainPage
+
         #database and file directories
         self.DirectoriesObj = DirectoriesObj
-        self.oldDirectory = "./Testimgs/"
-        self.newDirectory = self.oldDirectory
-        self.csvDirectory = "./DataBase/"
-
 
         #menu bar
         #here for now, will be moved later
         self.MenuBar = tk.Menu(MainPage)
 
+        #file options
         self.FileMenu = tk.Menu(self.MenuBar, tearoff=0)
-        self.FileMenu.add_command(label="Open Image Folder", command=self.setImageFolder)
-
+        self.FileMenu.add_command(label="Open Image Folder", command=self.setImageFolder) 
+        self.FileMenu.add_command(label="Set Save Folder", command=self.setSaveFolder)
+        self.FileMenu.add_command(label="Set Database Folder", command=self.setDataBaseFolder)
         self.MenuBar.add_cascade(label="File", menu=self.FileMenu)
 
 
-        self.SortMenu = tk.Menu(self.MenuBar, tearoff=0)
-        self.SortMenu.add_command(label="Commit to Database", command=self.commitGroups)
+        self.CommitMenu = tk.Menu(self.MenuBar, tearoff=0)
+        self.CommitMenu.add_command(label="Commit to Database", command=self.commitGroups)
+        self.CommitMenu.add_command(label="Commit and Exit", command=self.commitExit)
 
-        self.MenuBar.add_cascade(label="Commmit", menu=self.SortMenu)
+        self.MenuBar.add_cascade(label="Commit", menu=self.CommitMenu)
 
         MainPage.config(menu=self.MenuBar)
 
@@ -87,7 +93,8 @@ class sortPage:
         MainPage.columnconfigure(1, weight=1)
         MainPage.rowconfigure(0, weight=1)
 
-
+        #catch for user clicking close window
+        MainPage.protocol("WM_DELETE_WINDOW", self.onClose)
 
         #create left/parent frame
         self.LeftFrame = tk.Frame(MainPage, width=900, height=500)  #outer most frame
@@ -277,14 +284,23 @@ class sortPage:
         self.populateLeft()
         self.populateRight()
 
+    def commitExit(self)-> None:
+        self.commitGroups()
+        self.MainPage.destroy()
+
     ##### Set Directories #####
     def setImageFolder(self)->None:
-        #prompt user to save the current sorted data to the database
-        if(messagebox.askyesno(title="Would you like to save sorted data to the database?", message="Would you like to set a save location for the sorted files?")):
-            self.commitGroups()
+        if(self.DirectoriesObj.getOldDataDirect() == None):
+            #make sure user meant to change the image folder
+            if(not messagebox.askyesno(title="Change Image Folder?", message="Are you sure?")):
+                return
+
+            #prompt user to save the current sorted data to the database
+            if(messagebox.askyesno(title="Commit Sorted Data?", message="Would you like to commit sorted data before changing the image folder?")):
+                self.commitGroups()
 
         #prompt and set the old directory
-        self.DirectoriesObj.setOldDataDirect(filedialog.askdirectory(title="Select an Image or Video Folder"))
+        self.DirectoriesObj.setOldDataDirect()
 
         #Create new root group and populate it
         self.RootGroup = LB.initializeGroupTree(directoryObj = self.DirectoriesObj)
@@ -294,10 +310,28 @@ class sortPage:
         self.populateRight()
     
     def setSaveFolder(self)->None:
-        self.DirectoriesObj.setNewDataDirect(filedialog.askdirectory(title="Select Save Location"))
+        self.DirectoriesObj.setNewDataDirect()
 
     def setDataBaseFolder(self)->None:
-        LB.setDataBaseFolder(self.DirectoriesObj)
+        if(messagebox.askyesno(title="Commit Sorted Data?", message="Would you like to commit sorted data before changing the database?")):
+            self.commitGroups()
+
+        self.DirectoriesObj.setDataBaseDirect()
+
+        #Create new root group and populate it
+        self.RootGroup = LB.initializeGroupTree(directoryObj = self.DirectoriesObj)
+        self.parentGroup = self.RootGroup
+        
+        self.populateLeft()
+        self.populateRight()
+
+    ########### Protocols ###########
+    #handle the window close protocol
+    def onClose(self)-> None:
+        if(messagebox.askyesno(title="Exit?", message="Are you sure you want to exit?")):
+            if(messagebox.askyesno(title="Commit Sorted Data?", message="Would you like to commit sorted data before exiting?")):
+                self.commitGroups()
+            self.MainPage.destroy()
 
 
 
@@ -443,9 +477,6 @@ class GroupWidget(tk.Frame):
             itemWidget.destroy()
 
         self.ItemWidgetList = []
-
-        self.minItemIndex = 0
-        self.maxItemIndex = 0
 
 
     #iterated through the items and item widgets, deleting or creating widgets as needed to match the items
