@@ -371,7 +371,8 @@ def getGroupNum(GroupObj, GroupDf)-> int:
         if(pd.isna(groupNum)):
             groupNum = 1
         else:
-            groupNum +=1 
+            groupNum +=1
+        GroupObj.groupNum = groupNum
     
     return groupNum
 
@@ -386,7 +387,8 @@ def getItemNum(ItemObj, ItemDf)-> int:#very similar to getGroupNum
             itemNum = 1
         else:
             itemNum +=1
-    
+        ItemObj.itemNum = itemNum
+
     return itemNum
 
 
@@ -452,7 +454,7 @@ def writeTreeBoot(rootGroup, databaseDirect, oldFileDirect, newFileDirect)-> Non
     GroupDf = pd.read_csv(databaseDirect + "GroupData.csv").astype({"groupNumber" : int, "parentNumber" : int, "subjects" : str, "creators": str, "tags" : str, "pg" : int})
 
     #the root group is not written to the database, so each of its children is 
-    #considered its own tree 
+    #considered its own tree writeNewFile(newFileName, oldFileName, oldFileDirect, newFileDirect)-> None:
     for groupTree in rootGroup.childGroups:
         #rootGroupNum = getGroupNum(GroupObj=groupTree, GroupDf=GroupDf)
 

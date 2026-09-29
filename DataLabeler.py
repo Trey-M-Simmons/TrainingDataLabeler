@@ -1,7 +1,8 @@
 """
 Author: Trey Simmons
 Created: 3/17/26
-Date of Last Edit: 9/11/26
+Date of Last Edit: 9/28/26
+Edit: Bug fixes: Fixed issue with scroll direction in the scrollable frames.
 Description: This is the main file for the data labeling program. It contains the GUI and the main function that run the program. 
 """
 
@@ -549,7 +550,7 @@ class GroupWidget(tk.Frame):
     #creates/sets the str for the label widget
     def setLabelText(self)-> None:
         if(self.Group.parent != None):
-            textStr:str = f"SUBJECTS: {" ".join(self.Group.subjects)} CREATORS: {" ".join(self.Group.creator)} TAGS: {" ".join(self.Group.tags)}"
+            textStr:str = f'SUBJECTS: {" ".join(self.Group.subjects)} CREATORS: {" ".join(self.Group.creator)} TAGS: {" ".join(self.Group.tags)}'
             self.LabelsWidget["text"] = textStr
         else:
             self.LabelsWidget["text"] = "Root Group"
@@ -703,9 +704,9 @@ class ScrollableFrame(tk.Frame):
 
     #on user scroll wheel, for both linux and windows
     def onScrollWheel(self, event):
-        if event.num == 5 or event.delta > 0:
+        if event.num == 5 or event.delta < 0:
             self.onScroll("scroll", 1, "units")
-        if event.num == 4 or event.delta < 0:
+        if event.num == 4 or event.delta > 0:
             self.onScroll("scroll", -1, "units")
 
     def onEnter(self, event):
