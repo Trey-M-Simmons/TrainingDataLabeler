@@ -13,11 +13,11 @@ from PIL import Image, ImageTk
 class Directories:
     def __init__(self):
         #new directory is where the files will be saved after commiting 
-        self._newDataDirectory: str = "./"
+        self._newDataDirectory: str = None
         #old directory is where the files are prior to commiting
-        self._oldDataDirectory: str = "./"
+        self._oldDataDirectory: str = None
         
-        self._dataBaseDirectory: str = "./DataBase/"
+        self._dataBaseDirectory: str = None
     
     #### get methods ####
     def getNewDataDirect(self)-> str:
@@ -30,7 +30,7 @@ class Directories:
         return copy.deepcopy(self._dataBaseDirectory)
     
     #### set methods ####
-    #helper func to the rest of the set methods
+    #helper func to the rest of the set methods, ensures the directory exists and has a trailing slash
     def _setDirect(direct: str)-> str:
         if(os.path.isdir(direct)):
             if(direct[-1] == "/"):
@@ -40,13 +40,51 @@ class Directories:
         else:
              raise FileNotFoundError(f"{direct} is NOT a valid directory!")
     
-    def setNewDataDirect(self, direct: str):
+    def setNewDataDirect(self, direct: str = None):
+        if(direct == None):
+            direct = filedialog.askdirectory(title="Select Where to Save New Data")
         self._newDataDirectory = Directories._setDirect(direct)
     
-    def setOldDataDirect(self, direct: str):
+    def setOldDataDirect(self, direct: str = None):
+        if(direct == None):
+            direct = filedialog.askdirectory(title="Select an Image Folder")
         self._oldDataDirectory = Directories._setDirect(direct)
     
-    def setDataBaseDirect(self, direct: str):
+    def setDataBaseDirect(self, direct: str = None):
+        if(direct == None):
+            selectionMade: bool = False
+
+            while(not selectionMade):
+                direct = filedialog.askdirectory(title="Select Database Folder")
+                #if user clicked the "x", do nothing and exit the func
+                if(direct == ""):
+                    messagebox.showinfo(title="No Folder Selected", message="Database folder has Not been changed!")
+                    return
+                    
+                groupDirect = direct + "/GroupData.csv"
+                itemDirect = direct + "/ItemData.csv"
+                labelsDirect = direct + "/Labels.csv"
+                if(os.path.exists(groupDirect) and os.path.exists(itemDirect) and os.path.exists(labelsDirect)):
+                    selectionMade = True
+                else:
+                    selectionMade = messagebox.askyesno(title="Create DataBase files?", message="Database files not found, would you like to create them?")
+                    #prompt again if the user does not want to create the missing files
+                    if(not selectionMade):
+                        continue
+                
+                    #if user chose to create the missing files, create them
+                    if(not os.path.exists(groupDirect)):
+                        with open(groupDirect, "w") as groupFile:                            
+                            groupFile.write("groupNumber,parentNumber,subjects,creators,tags,pg")
+                    if(not os.path.exists(itemDirect)):
+                        with open(itemDirect, "w") as itemFile:
+                            itemFile.write("itemNumber,groupNumber,fileName")
+                    if(not os.path.exists(labelsDirect)):
+                        with open(labelsDirect, "w") as labelFile:
+                            labelFile.write("subjects,creators,tags")
+                
+                    selectionMade = True
+
         self._dataBaseDirectory = Directories._setDirect(direct)
 
 #keeps track of various page state data such as labels
@@ -498,31 +536,4 @@ def getAllFiles(directory)-> list[str]:
     validFileTypes = [".jpg", ".jpeg", ".png"]
     return [f.name for f in PathObj.iterdir() if (f.is_file() and (f.suffix.lower() in validFileTypes))]
 
-
-#sets the database directory by prompting the user to select a directory, if the directory does not contain the csv files, it will ask if they want to create them
-def setDataBaseFolder(DirectoriesObj: Directories)-> None:
-    selectionMade: bool = False
-    direct: str = ""
-    
-    while(not selectionMade):
-        direct = filedialog.askdirectory(title="Select Database Folder")
-        if(os.path.exists(direct + "/GroupData.csv") and os.path.exists(direct + "/ItemData.csv") and os.path.exists(direct + "/Labels.csv")):
-            DirectoriesObj.setDataBaseDirect(direct)
-            selectionMade = True
-        else:
-            selectionMade = messagebox.askyesno(title="Create DataBase files?", message="Database files not found, would you like to create them?")
-            #prompt again if the user does not want to create the missing files
-            if(not selectionMade):
-                continue
-    
-            #if user chose to create the missing files, create them
-            with open(direct + "/GroupData.csv", "w") as groupFile:
-                groupFile.write("groupNumber,parentNumber,subjects,creators,tags,pg")
-            with open(direct + "/ItemData.csv", "w") as itemFile:
-                itemFile.write("itemNumber,groupNumber,fileName")
-            with open(direct + "/Labels.csv", "w") as labelFile:
-                labelFile.write("subjects,creators,tags")
-    
-            DirectoriesObj.setDataBaseDirect(direct)
-            selectionMade = True
 
