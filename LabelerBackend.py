@@ -7,6 +7,7 @@ import os
 import PIL
 import math
 import copy
+from PIL import Image, ImageTk
 
 ####### keeps track of the directories ########
 class Directories:
@@ -48,13 +49,74 @@ class Directories:
     def setDataBaseDirect(self, direct: str):
         self._dataBaseDirectory = Directories._setDirect(direct)
 
+#keeps track of various page state data such as labels
+class Labels():
+    def __init__(self, Df):
+        #all of the label options for each label
+        #note: the most recently used option should be at the top of the list
+        self.subjectLabels = []
+        self.creatorLabels = []
+        self.tagLabels = []
+
+        self.LabelsCSV = Df
+
+        self.getLabels()
+
+    #pull the labels from the df
+    def getLabels(self)->None:
+        self.subjectLabels = self.LabelsCSV["subjects"].dropna().to_list()
+        self.creatorLabels = self.LabelsCSV["creators"].dropna().to_list()
+        self.tagLabels = self.LabelsCSV["tags"].dropna().to_list()
+
+    ##### Put Label Functions #####
+    
+    #if a label is already in the list, move it to the top, otherwise it is added to the top
+    #helper func to the below put functions
+    def putLabelOnTop(self, LabelList, addlabel)->None:
+        if(addlabel in LabelList):
+            LabelList.remove(addlabel)
+        LabelList.append(addlabel)
+    
+    def putSubject(self, label)->None:
+        self.putLabelOnTop(LabelList=self.subjectLabels, addlabel=label)
+    
+    def putCreator(self, label)->None:
+        self.putLabelOnTop(LabelList=self.creatorLabels, addlabel=label)
+
+    def putTag(self, label)->None:
+        self.putLabelOnTop(LabelList=self.tagLabels, addlabel=label)
+
+    ##### Remove Label Functions #####
+    #not finished yet
+
 #an item is some image or video that needs to be labeled and is contained inside of a group
 class Item:
-    def __init__(self, fileName = "unknown.unknown", directory = ".", itemNum: int = -1):
+    def __init__(self, fileName = "unknown.unknown", directory = ".", itemNum: int = -1, maxItemWidth: int = 400, maxItemHeight: int = 300):
         self.fileName = fileName
         self.fileType = Path(fileName).suffix
         self.directory = directory
         self.itemNum = itemNum
+        self.IMG = None
+
+        self.maxItemWidth = maxItemWidth
+        self.maxItemHeight = maxItemHeight
+
+        self.itemWidth: int = None
+        self.itemHeight: int = None
+
+
+    def getIMG(self):
+        #if the item has not been rendered yet then do so
+        if((self.IMG == None) and (os.path.exists(self.directory + self.fileName))):
+            self.IMG = Image.open(self.directory + self.fileName)
+            #resize
+            self.IMG.thumbnail((self.maxItemWidth, self.maxItemHeight), Image.Resampling.LANCZOS) 
+            self.IMG = ImageTk.PhotoImage(self.IMG)
+
+        return self.IMG
+
+    def getHeight(self):
+        return self.maxItemHeight
 
 #A group is a node of a tree where each group holds a list of items and a list of child groups
 class Group:
@@ -309,7 +371,8 @@ def getGroupNum(GroupObj, GroupDf)-> int:
         if(pd.isna(groupNum)):
             groupNum = 1
         else:
-            groupNum +=1 
+            groupNum +=1
+        GroupObj.groupNum = groupNum
     
     return groupNum
 
@@ -324,7 +387,8 @@ def getItemNum(ItemObj, ItemDf)-> int:#very similar to getGroupNum
             itemNum = 1
         else:
             itemNum +=1
-    
+        ItemObj.itemNum = itemNum
+
     return itemNum
 
 
@@ -390,7 +454,7 @@ def writeTreeBoot(rootGroup, databaseDirect, oldFileDirect, newFileDirect)-> Non
     GroupDf = pd.read_csv(databaseDirect + "GroupData.csv").astype({"groupNumber" : int, "parentNumber" : int, "subjects" : str, "creators": str, "tags" : str, "pg" : int})
 
     #the root group is not written to the database, so each of its children is 
-    #considered its own tree 
+    #considered its own tree writeNewFile(newFileName, oldFileName, oldFileDirect, newFileDirect)-> None:
     for groupTree in rootGroup.childGroups:
         #rootGroupNum = getGroupNum(GroupObj=groupTree, GroupDf=GroupDf)
 
@@ -402,6 +466,30 @@ def writeTreeBoot(rootGroup, databaseDirect, oldFileDirect, newFileDirect)-> Non
     #save database
     ItemsDf.to_csv(databaseDirect + "ItemData.csv", index=False)
     GroupDf.to_csv(databaseDirect + "GroupData.csv", index=False)
+
+#commit the labels from object to Labels.csv
+def writeLabels(directObj: Directories, labelsObj: Labels)->None:
+
+    CSVpath: str = directObj.getDataBaseDirect() + "Labels.csv"
+
+    labelsDF: pd.DataFrame = pd.DataFrame(columns=["subjects", "creators", "tags"])
+
+    #write each kind of label to the csv, NOTE: I am doing it this way to avoid writing nans to the csv
+    #creators
+    for rowIndex in range(0, len(labelsObj.creatorLabels)):
+        labelsDF.loc[rowIndex, "creators"] = labelsObj.creatorLabels[rowIndex]
+
+    #subjects
+    for rowIndex in range(0, len(labelsObj.subjectLabels)):
+        labelsDF.loc[rowIndex, "subjects"] = labelsObj.subjectLabels[rowIndex]
+
+    #tags
+    for rowIndex in range(0, len(labelsObj.tagLabels)):
+        labelsDF.loc[rowIndex, "tags"] = labelsObj.tagLabels[rowIndex]
+
+    labelsDF.to_csv(CSVpath, index=False)
+    
+
             
 
 #return an array of all files in the directory

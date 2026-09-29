@@ -1,16 +1,20 @@
 """
 Author: Trey Simmons
 Created: 3/17/26
-Date of Last Edit: 9/11/26
+Date of Last Edit: 9/28/26
+Edit: Bug fixes: Fixed issue with scroll direction in the scrollable frames.
 Description: This is the main file for the data labeling program. It contains the GUI and the main function that run the program. 
 """
 
 
+import bisect
 import tkinter as tk
 from tkinter import dnd
 from tkinter import ttk
 from tkinter import filedialog
 from tkinter import messagebox
+from turtle import pos
+from xxlimited import new
 from PIL import Image, ImageTk
 import LabelerBackend as LB
 import pandas as pd
@@ -19,13 +23,13 @@ import os
 def main():
     MainPage = tk.Tk()
     LabelsDF = pd.read_csv("./DataBase/Labels.csv")
-    LabelsObj = Labels(LabelsDF)
+    LabelsObj = LB.Labels(LabelsDF)
 
     SORT(MainPage, LabelsObj)
 
 
 ######################### SORTING SECTION ###########################
-def SORT(MainPage, LabelsObj)->None:
+def SORT(MainPage, LabelsObj: LB.Labels)->None:
     #get directory from user
     directoryStr = filedialog.askdirectory(title="Select an Image or Video Folder")
     Directories = LB.Directories()
@@ -46,7 +50,7 @@ def SORT(MainPage, LabelsObj)->None:
 # as well as create new child groups and delete child groups. The user may choose to sort a child group, making that child the new parent group and 
 # that child's children the new current child groups.
 class sortPage:
-    def __init__(self, MainPage, LabelsObj, rootGroup, DirectoriesObj):
+    def __init__(self, MainPage, LabelsObj:LB.Labels, rootGroup, DirectoriesObj):
 
         self.LabelsObj = LabelsObj
         self.parentGroup = rootGroup
@@ -86,19 +90,21 @@ class sortPage:
 
 
         #create left/parent frame
-        self.LeftFrame = tk.Frame(MainPage, width=800, height=500)  #outer most frame
+        self.LeftFrame = tk.Frame(MainPage, width=900, height=500)  #outer most frame
         #self.LeftFrame.pack(side="left", fill="both", expand=True)
         self.LeftFrame.grid(row=0, column=0, sticky="NSEW")
         
         self.LeftFrame.columnconfigure(0, weight=1)
+        self.LeftFrame.rowconfigure(0, weight=0)
+        self.LeftFrame.rowconfigure(1, weight=1)
         
         self.SortGroupAbove = tk.Button(self.LeftFrame, text="Back")
-        self.SortGroupAbove.pack(pady=26)
+        self.SortGroupAbove.grid(row=0, column=0, pady=33, padx=10)
         self.SortGroupAbove.bind("<Button-1>", self.sortParentGroup)
 
         #allows the widgets inside of self.LeftScrollFrame.InnerFrame to be vertically scrolled
-        self.LeftScrollFrame = ScrollableFrame(self.LeftFrame, width=1200, height=500)
-        self.LeftScrollFrame.pack(side="left", fill="both", expand=True)
+        #self.LeftScrollFrame = ScrollableFrame(self.LeftFrame, width=1200, height=500)
+        #self.LeftScrollFrame.pack(side="left", fill="both", expand=True)
         
 
         #create right/child frame
@@ -106,20 +112,23 @@ class sortPage:
         #self.RightFrame.pack(side="right", fill="both", expand=True)
         self.RightFrame.grid(row=0, column=1, sticky="NSEW")
 
+        self.RightFrame.columnconfigure(0, weight=1)
+        self.RightFrame.rowconfigure(3, weight=1)
+
         self.NewGroupButton = tk.Button(self.RightFrame, text="Create New Group")
-        self.NewGroupButton.pack()
+        self.NewGroupButton.grid(row=0, column=0)
         self.NewGroupButton.bind("<Button-1>", self.CreateChildGroup)
 
         self.DeleteGroupButton = tk.Button(self.RightFrame, text="Delete Selected Group")
-        self.DeleteGroupButton.pack()
+        self.DeleteGroupButton.grid(row=1, column=0)
         self.DeleteGroupButton.bind("<Button-1>", self.deleteChildWidget)
 
         self.SortGroupButton = tk.Button(self.RightFrame, text="Sort Child Group")
-        self.SortGroupButton.pack()
+        self.SortGroupButton.grid(row=2, column=0)
         self.SortGroupButton.bind("<Button-1>", self.sortChildGroup)
 
         self.RightScrollFrame = ScrollableFrame(self.RightFrame, width=1200, height=500)
-        self.RightScrollFrame.pack(side="right", fill="both", expand=True)
+        self.RightScrollFrame.grid(row=3, column=0, sticky="NSEW")
         
         #populate the left and right sides
         self.populateLeft()
@@ -130,8 +139,8 @@ class sortPage:
     #populate the left side of the GUI with a GroupWidget of the parent group and its item widgets
     def populateLeft(self)->None:
         if(self.ParentGroupWidget == None):
-            self.ParentGroupWidget = GroupWidget(self.LeftScrollFrame.InnerFrame, self.parentGroup, LabelsObj=self.LabelsObj, maxItemHeight=900, maxItemWidth=900)
-            self.ParentGroupWidget.pack(fill="y")
+            self.ParentGroupWidget = GroupWidget(self.LeftFrame, self.parentGroup, LabelsObj=self.LabelsObj, maxItemHeight=900, maxItemWidth=900)
+            self.ParentGroupWidget.grid(row=1, column=0, sticky="nsew")
         else:
             if(self.ParentGroupWidget.Group != self.parentGroup):#if the parent group has changed, delete old widgets
                 self.ParentGroupWidget.deleteItemWidgets()
@@ -143,7 +152,7 @@ class sortPage:
     #set the item widgets of the parent group widget
     def updateLeft(self)->None:
         if(self.ParentGroupWidget != None):
-            self.ParentGroupWidget.setItemWidgets()
+            self.ParentGroupWidget.renderItemWidgets()
 
     #populate the right side of the GUI with GroupWidgets of the current child groups 
     def populateRight(self)->None:
@@ -156,8 +165,8 @@ class sortPage:
         for childIndex in range(0, len(self.parentGroup.childGroups)):
             child = self.parentGroup.childGroups[childIndex]
             newChildWidget = GroupWidget(self.RightScrollFrame.InnerFrame, child, LabelsObj=self.LabelsObj, maxItemHeight=900, maxItemWidth=900, itemPack="top")
-            #newChildWidget.pack(fill="y")
-            newChildWidget.grid(row=childIndex, column=0)
+            #self.RightScrollFrame.InnerFrame.rowconfigure(childIndex, weight=1)
+            newChildWidget.grid(row=childIndex, column=0, sticky="nsew")
             newChildWidget.bind("<Button-1>", self.selectChildWidget)
             self.ChildGroupWidgets.append(newChildWidget)
 
@@ -203,7 +212,9 @@ class sortPage:
              
         #clean up work, re-grid the remaining widgets
         for index in range(0, childWidgetLen):
-           self.ChildGroupWidgets[index].grid(row=index, column=0)
+           #self.RightScrollFrame.InnerFrame.rowconfigure(index, weight=1)
+           #self.RightScrollFrame.InnerFrame.columnconfigure(index, weight=1)
+           self.ChildGroupWidgets[index].grid(row=index, column=0, sticky="nsew")
 
         #reset selected
         self.SelectedChildWidget = None
@@ -256,6 +267,8 @@ class sortPage:
                         databaseDirect=self.DirectoriesObj.getDataBaseDirect(),
                         oldFileDirect=self.DirectoriesObj.getOldDataDirect(),
                         newFileDirect=self.DirectoriesObj.getNewDataDirect())
+
+        LB.writeLabels(directObj=self.DirectoriesObj, labelsObj=self.LabelsObj)
         
         #reset GUI to the root group, and reload the root groups children
         self.parentGroup = self.RootGroup
@@ -296,16 +309,31 @@ class sortPage:
 #widget class that displays a group and its children
 class GroupWidget(tk.Frame):
     
-    def __init__(self, ParentWidget, Group, LabelsObj, width=800, height=1200, itemPack="top", maxItemHeight=800, maxItemWidth=800, maxItemWidgets = 30):
+    def __init__(self, ParentWidget, Group, LabelsObj, width=1200, height=1200, itemPack="top", maxItemHeight=800, maxItemWidth=800, maxItemWidgets = 10):
         super().__init__(ParentWidget, bg="lightblue", bd=2, relief="groove", width=width, height=height)
         self.packType = itemPack
         self.Group = Group
         self.maxItemHeight = maxItemHeight
         self.maxItemWidth = maxItemWidth
         self.ItemWidgetList = []
-        self.maxItemWigets = maxItemWidgets #max number of item widgets to be shown
+        self.maxItemWidgets = maxItemWidgets #max number of item widgets to be shown
+
+        #the position of each each item widget in the scroll frame
+        self.itemWidgetYPos: list[int] = [0]*len(self.Group.items)
+
+        #scroll height for the itemWidgets (uses virtual scrolling)
+        self.scrollHeight: int = 1
+        self.itemRenderPending = False
 
         self.Labels = LabelsObj
+
+        self.columnconfigure(0, weight=1)
+        self.rowconfigure(5, weight=1)
+
+        #scroll frame that holds the item widgets
+        self.ItemScrollFrame: ScrollableFrame = ScrollableFrame(self, width=width, height=height)
+        #bind the callback, this allows us to add/subtract item widgets when the user scrolls
+        self.ItemScrollFrame.setScrollCallBack(self.scheduleItemRender)
 
         def labelKindSelected(event)-> None:
             comboBox = event.widget
@@ -381,6 +409,9 @@ class GroupWidget(tk.Frame):
         self.setLabelText()
         self.LabelsWidget.grid(row=4, column=0)
 
+        #grid scroll frame
+        self.ItemScrollFrame.grid(row=5, column=0, sticky="nsew")
+
         #import items
         self.setItemWidgets()
 
@@ -394,14 +425,15 @@ class GroupWidget(tk.Frame):
         
     def dnd_leave(self, source, event):
         #self.configure(bg="lightblue")
-        ""
+        """"""
 
     def dnd_motion(self, source, event):
         """"""
 
     def dnd_commit(self, source, event):
         self.Group.addItem(source.item)
-        self.setItemWidgets()
+        self.setItemWidgetYPos()
+        self.renderItemWidgets()
 
     ######## Update Widget Functions ########
 
@@ -412,111 +444,188 @@ class GroupWidget(tk.Frame):
 
         self.ItemWidgetList = []
 
-    
+        self.minItemIndex = 0
+        self.maxItemIndex = 0
+
 
     #iterated through the items and item widgets, deleting or creating widgets as needed to match the items
-    #Very similar to updateRight() in SORTPAGE
-    #CHANGE SYSTEM LATER IN ORDER TO CLEAN UP .configure jitteryness
     def setItemWidgets(self)-> None:
-        itemIndex = 0
-        while(itemIndex < self.maxItemWigets - 1):
-            if(itemIndex >= len(self.Group.items)):
+        for _ in range(len(self.ItemWidgetList)):
+            self.ItemWidgetList.pop(0).destroy()
+
+        for x in range(self.maxItemWidgets):
+            if(x > len(self.Group.items)):
                 break
+            newItemWidget = ItemWidget(self.ItemScrollFrame.InnerFrame, self, None)
+            self.ItemWidgetList.append(newItemWidget)
 
-            #check if the current item has a corresponding widget
-            foundWidgetIndex = 0
-            foundWidgetFlag = False
-            if(len(self.ItemWidgetList) != 0):#makes sure that there are widgets
-                for widgetIndex in range(itemIndex, len(self.ItemWidgetList)):
-                    if(self.Group.items[itemIndex] == self.ItemWidgetList[widgetIndex].item):
-                        foundWidgetFlag = True
-                        foundWidgetIndex = widgetIndex
+        self.setItemWidgetYPos()
+        self.renderItemWidgets()
+
+    #set the item widget locations, also updates scrollheight and scroll frames inner frame/canvas
+    def setItemWidgetYPos(self):
+        itemLen: int = len(self.Group.items)
+        posLen: int = len(self.itemWidgetYPos)
+
+        currPos: int = 0
+
+        if(itemLen != posLen ):
+            if(itemLen > posLen):
+                self.itemWidgetYPos.extend([0] * (itemLen - posLen))
+            elif(itemLen < posLen):
+                self.itemWidgetYPos = self.itemWidgetYPos[:itemLen]
+
+        for itemIndex, item in enumerate(self.Group.items):
+            self.itemWidgetYPos[itemIndex] = currPos
+            currPos += item.getHeight() + 50
+
+        #set Scroll Height
+        self.scrollHeight = currPos
+
+        #update the scroll frames inner frame/canvas height
+        self.ItemScrollFrame.InnerFrame.configure(height=currPos)
+        self.ItemScrollFrame.InnerCanvas.configure(scrollregion=(0, 0, 1, currPos))
+
+
+
+    #updates the scroll region if necessary, what items are loaded into widgets, and widget placement in the scroll region
+    def renderItemWidgets(self):
+        self.itemRenderPending = False
+
+        #get scroll pos
+        topPerc, _ = self.ItemScrollFrame.InnerCanvas.yview()
+
+        #position (in pixels) of the top/bottom of the visible viewport
+        topWidgetPos: int = int(topPerc * self.scrollHeight)
+
+        #items have variable heights, so topPerc/bottomPerc (fractions of pixel height) do not map
+        #linearly to item indices - look up the index whose pixel position matches instead
+        topIndex: int = max(0, bisect.bisect_right(self.itemWidgetYPos, topWidgetPos) - 1)
+
+        #items still in view keep the widget they already have so their image isn't reloaded -
+        endIndex: int = min(len(self.Group.items), topIndex + len(self.ItemWidgetList))
+        neededIndices = list(range(topIndex, endIndex))
+
+        #map each needed item index to a widget, reusing existing widgets where possible
+        widgetForIndex: dict = {}#maps item index to the widget displaying it
+        freeWidgets: list = []#widgets that are not currently mapped to any needed item index
+        for widget in self.ItemWidgetList:
+            matchedIndex = None
+            if(widget.item is not None):
+                for candidateIndex in neededIndices:
+                    if(candidateIndex not in widgetForIndex and self.Group.items[candidateIndex] == widget.item):
+                        matchedIndex = candidateIndex
                         break
-            
-            #if the widget was found, delete widgets that no longer have a corresponding item
-            if(foundWidgetFlag == True):
-                #delete all widgets between the item index and the found widget index
-                for deleteIndex in range(itemIndex, foundWidgetIndex):
-                    self.ItemWidgetList[deleteIndex].destroy()
-                    self.ItemWidgetList.pop(deleteIndex)
-            else:#if the widget wasnt found, create and add it
-                newItemWidget = ItemWidget(self, self.Group.items[itemIndex], maxItemWidth=self.maxItemWidth, maxItemHeight=self.maxItemHeight)
-                self.ItemWidgetList.insert(itemIndex, newItemWidget)
-                #newItemWidget.grid(row=itemIndex + 1, column=0)
+            #if no match was found, this widget is free to be reused
+            if(matchedIndex is None):
+                freeWidgets.append(widget)
+            else:
+                widgetForIndex[matchedIndex] = widget
 
-            itemIndex += 1
+        #for needed items that do not have a widget yet, assign a free widget
+        for itemIndex in neededIndices:
+            if(itemIndex not in widgetForIndex):
+                widget = freeWidgets.pop()
+                widget.setItem(self.Group.items[itemIndex])
+                widgetForIndex[itemIndex] = widget
+
+        #any widgets left over are past the end of the item list, hide them
+        for widget in freeWidgets:
+            widget.place_forget()
+
+        #place the widgets at their corresponding positions
+        for itemIndex, widget in widgetForIndex.items():
+            widget.place(x=0, y = self.itemWidgetYPos[itemIndex], relwidth=1)
+
         
-        #clean up work, re-grid the remaining widgets
-        for index in range(0, len(self.ItemWidgetList)):
-            self.ItemWidgetList[index].grid(row=index + 6, column=0)
-            #note: the +6 is so that the item widgets are not in the same row as the buttons/labels
+
+    #throttles render calls to one per frame (~60fps) instead of firing on every scroll event
+    def scheduleItemRender(self):
+        if(not self.itemRenderPending):
+            self.itemRenderPending = True
+            self.after(16, self.renderItemWidgets)
+
+
 
     #creates/sets the str for the label widget
     def setLabelText(self)-> None:
         if(self.Group.parent != None):
-            textStr = "SUBJECTS: "
-            for subjLabel in self.Group.subjects:
-                textStr += subjLabel + " "
-
-            textStr += "CREATORS: "
-            for creatLabel in self.Group.creator:
-                textStr += creatLabel + " "
-            
-            textStr += "TAGS: "
-            for tag in self.Group.tags:
-                textStr += tag + " "
-
+            textStr:str = f'SUBJECTS: {" ".join(self.Group.subjects)} CREATORS: {" ".join(self.Group.creator)} TAGS: {" ".join(self.Group.tags)}'
             self.LabelsWidget["text"] = textStr
         else:
             self.LabelsWidget["text"] = "Root Group"
 
+    #adjusts the minItemIndex to better fit the widget list
+    #ex: if minItemIndex is 3, maxItemWidgets = 5, and the last index of the item list is 5, then set minItemIndex to 0
+    #so that the entire widget list is shown
+    def adjustMinItem(self)-> None:
+        adjustment: int = (len(self.Group.items) -1) - (self.minItemIndex + self.maxItemWidgets -1)
+
+        if(adjustment < 0):
+            self.minItemIndex += adjustment
+            if(self.minItemIndex < 0):
+                self.minItemIndex = 0
+        
+        
+
 #widget class that displays a single item
 class ItemWidget(tk.Frame):
-    def __init__(self, parent, item, maxItemHeight=400, maxItemWidth=300):
+    def __init__(self, parent, groupWidget, item):
 
         super().__init__(parent, bg="lightblue", bd=2, relief="groove")
-        self.groupWidget = parent
+        self.groupWidget = groupWidget
         self.item = item
 
-        self.WidgetLabel = None
+        self.WidgetLabel = tk.Label(self)
+        self.WidgetLabel.pack(padx = 5, pady=5, fill="y", expand=True)
 
-        if os.path.exists(item.directory + item.fileName):
-            PIL_IMG = Image.open(item.directory + item.fileName)
-            #resize
-            PIL_IMG.thumbnail((maxItemWidth, maxItemHeight), Image.Resampling.LANCZOS)
+        self.text = tk.Label(self)
+        self.text.pack(padx=20, pady=5)
 
-            tk_IMG = ImageTk.PhotoImage(PIL_IMG)
-            self.WidgetLabel = tk.Label(self, image=tk_IMG, text="DUED", width=maxItemWidth)
-            self.WidgetLabel.image = tk_IMG
-            self.WidgetLabel.pack(padx = 5, pady=5, fill="y", expand=True)
+        self.renderWidget()
 
-            self.text = tk.Label(self, text=item.fileName)
-            self.text.pack(padx=20, pady=5)
+    def setItem(self, setItem:LB.Item)->None:
+        self.item = setItem
+        self.renderWidget()
+
+    def renderWidget(self)->None:
+        if(self.item == None):
+            return
+        
+        IMG = self.item.getIMG()
+        if(IMG != None):
+            self.WidgetLabel.config(image=IMG, text="", width=self.item.maxItemHeight)
+            self.WidgetLabel.image = IMG
+        
+            self.text.config(text=self.item.fileName)
+
+            #bind callbacks
+            self.WidgetLabel.bind("<ButtonPress-1>", self.onDragStart)
+            self.bind("<ButtonPress-1>", self.onDragStart)
         else:
-            self.WidgetLabel = tk.Label(self, text="Unable to find image", width=maxItemWidth)
-
-        self.WidgetLabel.bind("<ButtonPress-1>", self.onDragStart)
-        self.bind("<ButtonPress-1>", self.onDragStart)
-
+            self.WidgetLabel.config(text="Unable to find image", width=self.item.maxItemHeight)
 
 
 
     ###### call backs for drag and drop features ######
     def onDragStart(self, event):
         dnd.dnd_start(source=self, event=event)
-
         
     def dnd_end(self, target, event):
         #if item was dropped into a groupWidget
         if(isinstance(target, GroupWidget)):
             if(self.groupWidget != target):
                 self.groupWidget.Group.removeItem(self.item)
+                self.groupWidget.setItemWidgetYPos()
+                self.groupWidget.renderItemWidgets()
         elif(isinstance(target, ItemWidget)):
             #if the two items are not in the same group widget
             if(self.groupWidget != target.groupWidget):
                 #remove the item from the old widget
                 self.groupWidget.Group.removeItem(self.item)
-        self.groupWidget.setItemWidgets()#re-populate widgets
+                #re-populate widgets
+                self.groupWidget.setItemWidgetYPos()
+                self.groupWidget.renderItemWidgets()
 
     #Drop features
     def dnd_accept(self, source, event):
@@ -535,73 +644,82 @@ class ItemWidget(tk.Frame):
 
     def dnd_commit(self, source, event):
         self.configure(bg="lightblue")
-        self.groupWidget.Group.addItemInFrontOf(self.item, source.item)
-        self.groupWidget.setItemWidgets()
+        self.groupWidget.Group.addItemInFrontOf(self.item, source.item)#add item into the group
+        #re-populate widgets
+        self.groupWidget.setItemWidgetYPos()
+        self.groupWidget.renderItemWidgets()
 
 
 class ScrollableFrame(tk.Frame):
-    def __init__(self, ParentWidget, width=800, height=1200, itemPack="top", maxItemHeight=800, maxItemWidth=800):
+    def __init__(self, ParentWidget, width=800, height=1200):
         super().__init__(ParentWidget, bg="lightblue", bd=2, relief="groove", width=width, height=height)
+        self.rowconfigure(0, weight=1)
+        self.columnconfigure(0, weight=1)
         
         self.InnerCanvas = tk.Canvas(self)
-        self.InnerCanvas.pack(side="left", fill="both", expand=True)
+        #self.InnerCanvas.pack(side="left", fill="both", expand=True)
+        self.InnerCanvas.grid(row=0, column=0, sticky="nsew")
 
-        self.ScrollBar = ttk.Scrollbar(self, orient="vertical", command=self.InnerCanvas.yview)
-        self.ScrollBar.pack(side="right", fill="y")
+        self.ScrollBar = ttk.Scrollbar(self, orient="vertical", command=self.onScroll)
+        self.ScrollBar.grid(row=0, column=1, sticky="ns")
+
+        #function, does not redraw the window but makes other adjustments to properly update the window
+        self.ScrollCallBack = None 
 
         self.InnerCanvas.configure(yscrollcommand=self.ScrollBar.set)
+        self.InnerCanvas.bind("<Configure>", self.resizeInnerFrame)
 
         #all widgets will sit inside of this inner frame
         self.InnerFrame = tk.Frame(self.InnerCanvas)
         self.InnerFrame.bind("<Configure>", self.updateRegion)
+        self.InnerFrame.columnconfigure(0, weight=1)#we are assuming the inner frame is populate with grid
 
         self.Window = self.InnerCanvas.create_window((0,0), window=self.InnerFrame, anchor="nw", width=self.winfo_width())
 
+        self.InnerCanvas.bind("<Enter>", self.onEnter)
+        self.InnerCanvas.bind("<Leave>", self.onLeave)
 
+
+    #updates the window on scroll
     def updateRegion(self, event):
         self.InnerCanvas.configure(scrollregion=self.InnerCanvas.bbox("all"))
-        self.InnerCanvas.itemconfigure(self.Window, width=self.winfo_width())
+        #must use the canvas's own width, not the frame's (which also includes the scrollbar column),
+        #otherwise the inner content is stretched under the scrollbar causing it to overlap
+        self.InnerCanvas.itemconfigure(self.Window, width=self.InnerCanvas.winfo_width())
+
+    #update on window resize
+    def resizeInnerFrame(self, event):
+        self.InnerCanvas.itemconfigure(self.Window, width=event.width)
+
+    def setScrollCallBack(self, callBackFunc):
+        self.ScrollCallBack = callBackFunc
+
+    #updates the scrollbar and makes callback
+    def onScroll(self, *args):
+        #scrolls canvas
+        self.InnerCanvas.yview(*args)
+
+        if(self.ScrollCallBack != None):
+            self.ScrollCallBack()
+
+    #on user scroll wheel, for both linux and windows
+    def onScrollWheel(self, event):
+        if event.num == 5 or event.delta < 0:
+            self.onScroll("scroll", 1, "units")
+        if event.num == 4 or event.delta > 0:
+            self.onScroll("scroll", -1, "units")
+
+    def onEnter(self, event):
+        self.InnerCanvas.bind_all("<MouseWheel>", self.onScrollWheel)# Windows
+        self.InnerCanvas.bind_all("<Button-4>", self.onScrollWheel)# Linux scroll up
+        self.InnerCanvas.bind_all("<Button-5>", self.onScrollWheel)# Linux scroll down
+
+    def onLeave(self, event):
+        self.InnerCanvas.unbind_all("<MouseWheel>")
+        self.InnerCanvas.unbind_all("<Button-4>")
+        self.InnerCanvas.unbind_all("<Button-5>")
 
 
-#keeps track of various page state data such as labels
-class Labels():
-    def __init__(self, Df):
-        #all of the label options for each label
-        #note: the most recently used option should be at the top of the list
-        self.subjectLabels = []
-        self.creatorLabels = []
-        self.tagLabels = []
-
-        self.LabelsCSV = Df
-
-        self.getLabels()
-
-    #pull the labels from the df
-    def getLabels(self)->None:
-        self.subjectLabels = self.LabelsCSV["subjects"].dropna().to_list()
-        self.creatorLabels = self.LabelsCSV["creators"].dropna().to_list()
-        self.tagLabels = self.LabelsCSV["tags"].dropna().to_list()
-
-    ##### Put Label Functions #####
-    
-    #if a label is already in the list, move it to the top, otherwise it is added to the top
-    #helper func to the below put functions
-    def putLabelOnTop(self, LabelList, addlabel)->None:
-        if(addlabel in LabelList):
-            LabelList.remove(addlabel)
-        LabelList.append(addlabel)
-    
-    def putSubject(self, label)->None:
-        self.putLabelOnTop(LabelList=self.subjectLabels, addlabel=label)
-    
-    def putCreator(self, label)->None:
-        self.putLabelOnTop(LabelList=self.creatorLabels, addlabel=label)
-
-    def putTag(self, label)->None:
-        self.putLabelOnTop(LabelList=self.tagLabels, addlabel=label)
-
-    ##### Remove Label Functions #####
-    #not finished yet
 
 if __name__ == "__main__":
     main()
