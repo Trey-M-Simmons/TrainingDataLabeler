@@ -2,8 +2,7 @@
 Author: Trey Simmons
 Created: 3/17/26
 Date of Last Edit: 9/29/26
-Edit: Bug fixes: Fixed issue with scroll direction in the scrollable frames.
-                Fixed database issue where a new group would be assigned the same group number as its parent
+Edit: Added open/set the new/old image folders, and set the database folder tool bar options. Also added handling for window close protocol.
 
 Description: This is the main file for the data labeling program. It contains the GUI and the main function that run the program. 
 """
@@ -80,11 +79,10 @@ class sortPage:
         self.FileMenu.add_command(label="Set Database Folder", command=self.setDataBaseFolder)
         self.MenuBar.add_cascade(label="File", menu=self.FileMenu)
 
-
+        #database options
         self.CommitMenu = tk.Menu(self.MenuBar, tearoff=0)
         self.CommitMenu.add_command(label="Commit to Database", command=self.commitGroups)
         self.CommitMenu.add_command(label="Commit and Exit", command=self.commitExit)
-
         self.MenuBar.add_cascade(label="Commit", menu=self.CommitMenu)
 
         MainPage.config(menu=self.MenuBar)
