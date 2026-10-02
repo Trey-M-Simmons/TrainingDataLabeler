@@ -14,9 +14,11 @@ from tkinter import dnd
 from tkinter import ttk
 from tkinter import filedialog
 from tkinter import messagebox
-from turtle import pos
-from xxlimited import new
+#from turtle import pos
+#from xxlimited import new
 from PIL import Image, ImageTk
+from sympy import root
+import LabelerDataBase as DB
 import LabelerBackend as LB
 import pandas as pd
 import os
@@ -24,29 +26,37 @@ import os
 def main():
     MainPage = tk.Tk()
     LabelsObj = None
-
+    DataBaseObj = DB.LabelerDataBase()
     DirectoriesObj = LB.Directories()
 
-    SORT(MainPage, LabelsObj, DirectoriesObj)
+    SORT(MainPage, LabelsObj, DirectoriesObj, DataBaseObj)
 
 
 
 
 ######################### SORTING SECTION ###########################
-def SORT(MainPage, LabelsObj: LB.Labels, DirectoriesObj: LB.Directories)->None:
+def SORT(MainPage, LabelsObj: LB.Labels, DirectoriesObj: LB.Directories, DataBaseObj: DB.LabelerDataBase)->None:
+    
     #get directory from user
     directoryStr = filedialog.askdirectory(title="Select an Image or Video Folder")
     DirectoriesObj.setOldDataDirect(directoryStr)
     DirectoriesObj.setNewDataDirect(directoryStr)
-    DirectoriesObj.setDataBaseDirect()
-
-    LabelsObj = LB.Labels(pd.read_csv(DirectoriesObj.getDataBaseDirect() + "Labels.csv"))
-
-    RootGroup = LB.initializeGroupTree(directoryObj = DirectoriesObj)
+    DataBaseObj.setDataBaseDirect()
     
-    SortPage = sortPage(MainPage=MainPage, LabelsObj=LabelsObj, rootGroup=RootGroup, DirectoriesObj=DirectoriesObj)
+
+    LabelsObj = LB.Labels(DataBaseObj)
+    RootGroup = LB.Group(DB=DataBaseObj, directoryObj=DirectoriesObj)
+    RootGroup.initializeGroupTree()
+    
+    
     MainPage.title("Data Labeler")
     MainPage.geometry("1500x1500")
+    if(os.path.exists("./icon.png")):
+        icon = ImageTk.PhotoImage(file="./icon.png")
+        MainPage.iconphoto(True, icon)
+
+    SortPage = sortPage(MainPage=MainPage, LabelsObj=LabelsObj, rootGroup=RootGroup, DirectoriesObj=DirectoriesObj, DataBaseObj=DataBaseObj)
+
     MainPage.mainloop()
 
 #Main page that the user will see, the left side of the page will have the parent group/items while the right side will have 
@@ -54,7 +64,7 @@ def SORT(MainPage, LabelsObj: LB.Labels, DirectoriesObj: LB.Directories)->None:
 # as well as create new child groups and delete child groups. The user may choose to sort a child group, making that child the new parent group and 
 # that child's children the new current child groups.
 class sortPage:
-    def __init__(self, MainPage, LabelsObj:LB.Labels, rootGroup, DirectoriesObj):
+    def __init__(self, MainPage, LabelsObj:LB.Labels, rootGroup, DirectoriesObj, DataBaseObj: DB.LabelerDataBase):
 
         self.LabelsObj = LabelsObj
         self.parentGroup = rootGroup
@@ -66,7 +76,8 @@ class sortPage:
         self.MainPage = MainPage
 
         #database and file directories
-        self.DirectoriesObj = DirectoriesObj
+        self.DirectoriesObj = DirectoriesObj #May Need to Delete
+        self.DataBaseObj = DataBaseObj
 
         #menu bar
         #here for now, will be moved later
@@ -107,11 +118,6 @@ class sortPage:
         self.SortGroupAbove.grid(row=0, column=0, pady=33, padx=10)
         self.SortGroupAbove.bind("<Button-1>", self.sortParentGroup)
 
-        #allows the widgets inside of self.LeftScrollFrame.InnerFrame to be vertically scrolled
-        #self.LeftScrollFrame = ScrollableFrame(self.LeftFrame, width=1200, height=500)
-        #self.LeftScrollFrame.pack(side="left", fill="both", expand=True)
-        
-
         #create right/child frame
         self.RightFrame = tk.Frame(MainPage, width=1200, height=500)
         #self.RightFrame.pack(side="right", fill="both", expand=True)
@@ -144,7 +150,7 @@ class sortPage:
     #populate the left side of the GUI with a GroupWidget of the parent group and its item widgets
     def populateLeft(self)->None:
         if(self.ParentGroupWidget == None):
-            self.ParentGroupWidget = GroupWidget(self.LeftFrame, self.parentGroup, LabelsObj=self.LabelsObj, maxItemHeight=900, maxItemWidth=900)
+            self.ParentGroupWidget = GroupWidget(ParentWidget=self.LeftFrame, Group=self.parentGroup, LabelsObj=self.LabelsObj, maxItemHeight=900, maxItemWidth=900)
             self.ParentGroupWidget.grid(row=1, column=0, sticky="nsew")
         else:
             if(self.ParentGroupWidget.Group != self.parentGroup):#if the parent group has changed, delete old widgets
@@ -169,7 +175,7 @@ class sortPage:
         #for child in self.parentGroup.childGroups:
         for childIndex in range(0, len(self.parentGroup.childGroups)):
             child = self.parentGroup.childGroups[childIndex]
-            newChildWidget = GroupWidget(self.RightScrollFrame.InnerFrame, child, LabelsObj=self.LabelsObj, maxItemHeight=900, maxItemWidth=900, itemPack="top")
+            newChildWidget = GroupWidget(ParentWidget = self.RightScrollFrame.InnerFrame, Group = child, LabelsObj=self.LabelsObj, maxItemHeight=900, maxItemWidth=900, itemPack="top")
             #self.RightScrollFrame.InnerFrame.rowconfigure(childIndex, weight=1)
             newChildWidget.grid(row=childIndex, column=0, sticky="nsew")
             newChildWidget.bind("<Button-1>", self.selectChildWidget)
@@ -201,7 +207,7 @@ class sortPage:
                     self.ChildGroupWidgets.pop(groupIndex)
                     foundWidgetIndex -= 1
             else:#if the widget wasnt found, create and add it
-                newChildWidget = GroupWidget(self.RightScrollFrame.InnerFrame, self.parentGroup.childGroups[groupIndex], LabelsObj=self.LabelsObj, maxItemHeight=900, maxItemWidth=900, itemPack="top")
+                newChildWidget = GroupWidget(parentWidget =self.RightScrollFrame.InnerFrame, Group = self.parentGroup.childGroups[groupIndex], LabelsObj=self.LabelsObj, maxItemHeight=900, maxItemWidth=900, itemPack="top")
                 newChildWidget.bind("<Button-1>", self.selectChildWidget)
                 self.ChildGroupWidgets.insert(groupIndex, newChildWidget)
 
@@ -268,16 +274,19 @@ class sortPage:
     #save all of the changes to the database
     def commitGroups(self)-> None:
         #write to the db
+        """
         LB.writeTreeBoot(rootGroup=self.RootGroup, 
                         databaseDirect=self.DirectoriesObj.getDataBaseDirect(),
                         oldFileDirect=self.DirectoriesObj.getOldDataDirect(),
-                        newFileDirect=self.DirectoriesObj.getNewDataDirect())
+                        newFileDirect=self.DirectoriesObj.getNewDataDirect())"""
+        self.DataBaseObj.writeGroups(self.RootGroup)
 
-        LB.writeLabels(directObj=self.DirectoriesObj, labelsObj=self.LabelsObj)
+        self.DataBaseObj.writeLabels(labelsObj=self.LabelsObj)
         
         #reset GUI to the root group, and reload the root groups children
         self.parentGroup = self.RootGroup
         self.RootGroup.childrenLoaded = False
+        self.RootGroup.childGroups = []
         self.RootGroup.loadGroupChildren()
         self.populateLeft()
         self.populateRight()
@@ -301,7 +310,7 @@ class sortPage:
         self.DirectoriesObj.setOldDataDirect()
 
         #Create new root group and populate it
-        self.RootGroup = LB.initializeGroupTree(directoryObj = self.DirectoriesObj)
+        self.RootGroup = LB.initializeGroupTree(directoryObj = self.DirectoriesObj, DB=self.DataBaseObj)
         self.parentGroup = self.RootGroup
 
         self.populateLeft()
@@ -314,10 +323,10 @@ class sortPage:
         if(messagebox.askyesno(title="Commit Sorted Data?", message="Would you like to commit sorted data before changing the database?")):
             self.commitGroups()
 
-        self.DirectoriesObj.setDataBaseDirect()
+        self.DataBaseObj.setDataBaseDirect()
 
         #Create new root group and populate it
-        self.RootGroup = LB.initializeGroupTree(directoryObj = self.DirectoriesObj)
+        self.RootGroup = LB.initializeGroupTree(directoryObj = self.DirectoriesObj, DB=self.DataBaseObj)
         self.parentGroup = self.RootGroup
         
         self.populateLeft()
@@ -632,7 +641,7 @@ class ItemWidget(tk.Frame):
             self.WidgetLabel.bind("<ButtonPress-1>", self.onDragStart)
             self.bind("<ButtonPress-1>", self.onDragStart)
         else:
-            self.WidgetLabel.config(text="Unable to find image", width=self.item.maxItemHeight)
+            self.WidgetLabel.config(text=f"Unable to find image: {self.item.directory}{self.item.fileName}", width=self.item.maxItemHeight)
 
 
 

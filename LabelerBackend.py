@@ -2,12 +2,12 @@ from pathlib import Path
 from tkinter import filedialog
 from tkinter import messagebox
 import pandas as pd
-import numpy as np
 import os
 import PIL
-import math
 import copy
 from PIL import Image, ImageTk
+#import LabelerDataBase as LDB
+import sqlite3
 
 ####### keeps track of the directories ########
 class Directories:
@@ -89,22 +89,20 @@ class Directories:
 
 #keeps track of various page state data such as labels
 class Labels():
-    def __init__(self, Df):
+    def __init__(self, DataBaseObj = None):
         #all of the label options for each label
         #note: the most recently used option should be at the top of the list
         self.subjectLabels = []
         self.creatorLabels = []
         self.tagLabels = []
 
-        self.LabelsCSV = Df
+        self.LabelsCSV = None #DELETE
 
-        self.getLabels()
+        #if a database was given load the labels from it
+        if(DataBaseObj != None):
+            DataBaseObj.loadLabels(self)
 
-    #pull the labels from the df
-    def getLabels(self)->None:
-        self.subjectLabels = self.LabelsCSV["subjects"].dropna().to_list()
-        self.creatorLabels = self.LabelsCSV["creators"].dropna().to_list()
-        self.tagLabels = self.LabelsCSV["tags"].dropna().to_list()
+
 
     ##### Put Label Functions #####
     
@@ -158,7 +156,7 @@ class Item:
 
 #A group is a node of a tree where each group holds a list of items and a list of child groups
 class Group:
-    def __init__(self, items = None, subjects = [], creator = [], collection = -1, tags = [], page = 0, parent = None, groupNum = -1, directoryObj: Directories= None):
+    def __init__(self, DB, items = None, subjects = [], creator = [], collection = -1, tags = [], page = 0, parent = None, groupNum = -1, directoryObj: Directories= None):
         
         if(items == None):
             items = []
@@ -183,13 +181,15 @@ class Group:
         
         #keeps track of directories
         self.directs = directoryObj
+        #data base object
+        self.DB = DB
         
         
     
     ###### Child Group methods ######
     #all new child groups will be initialized with the current groups labeling
     def createChildGroup(self)-> None:
-        newGroup = Group([], copy.deepcopy(self.subjects), copy.deepcopy(self.creator), self.collection, copy.deepcopy(self.tags), self.page, self)
+        newGroup = Group(DB=self.DB, items=[], subjects=copy.deepcopy(self.subjects), creator=copy.deepcopy(self.creator), collection=self.collection, tags=copy.deepcopy(self.tags), page=self.page, parent=self)
         self.childGroups.append(newGroup)
     
     #adds an already created child group
@@ -292,248 +292,32 @@ class Group:
             child.printGroupTree(row + 1)
             
     ####### load ##########
-    
-    #loads all of the items from database into memory
-    def loadItems(self, GroupDF = pd.DataFrame(), ItemDF = pd.DataFrame())-> None:
-        #if the current group is new, then it will not have items in the database
-        if(self.groupNum == -1):
-            return
-        
-        databaseDirect = self.directs.getDataBaseDirect()
-        imgDirect = self.directs.getOldDataDirect()
-            
-        groupDirec = f"{databaseDirect}GroupData.csv"
-        itemDirec = f"{databaseDirect}ItemData.csv"
-        if(GroupDF.empty):
-            GroupDF = pd.read_csv(groupDirec)
-        if(ItemDF.empty):
-            ItemDF = pd.read_csv(itemDirec)
-            
-        #rows of all of the items of the group
-        groupItemsDF =  ItemDF[ItemDF["groupNumber"] == self.groupNum]
-        
-        for itemRow in groupItemsDF.itertuples(index = False):
-            self.addItem(Item(fileName=itemRow.fileName, directory=imgDirect, itemNum = itemRow.itemNumber))
-    
     #loads all of the children from the database into memory
-    def loadGroupChildren(self, GroupDF = pd.DataFrame(), ItemDF = pd.DataFrame())-> None:
+    def loadGroupChildren(self)-> None:
         #if the current group is new, then it will not have children in the database
         if(self.groupNum == -1 or self.childrenLoaded == True):
             return
-        
-        databaseDirect = self.directs.getDataBaseDirect()
-        imgDirect = self.directs.getOldDataDirect()
-        groupDirec = f"{databaseDirect}GroupData.csv"
-        itemDirec = f"{databaseDirect}ItemData.csv"
-        if(GroupDF.empty):
-            GroupDF = pd.read_csv(groupDirec)
-        if(ItemDF.empty):
-            ItemDF = pd.read_csv(itemDirec)
-        
-        #contains all of the rows with this group as the parent
-        groupRootDF = GroupDF[GroupDF["parentNumber"] == self.groupNum]
-        #for each group to be loaded
-        for row in groupRootDF.itertuples(index=False):
-            groupNum: int = int(row.groupNumber)
-            
-            #get the row of the group that is going to be loaded
-            groupRow = GroupDF.loc[GroupDF["groupNumber"] == groupNum]
-            
-            #get values
-            subjects: list[str] = [] if pd.isna(groupRow["subjects"].item()) else groupRow["subjects"].item().split(" ")
-            creators: list[str] = [] if pd.isna(groupRow["creators"].item()) else groupRow["creators"].item().split(" ")
-            tags: list[str] = [] if pd.isna(groupRow["tags"].item()) else groupRow["tags"].item().split(" ")
-            pg: int = 0 if pd.isna(groupRow["pg"].item()) else int(groupRow["pg"].item())
-            parentNum: int = int(groupRow["parentNumber"].item())
-            
-            #create group
-            group = Group(items = None, subjects = subjects, creator = creators, collection = -1, tags = tags, page = pg, parent = self, groupNum = groupNum, directoryObj = self.directs)
-            #load items
-            group.loadItems(GroupDF = GroupDF, ItemDF = ItemDF)
-            
-            self.addChildGroup(group)
-        
+
+        #load group children and their items from the database
+        self.childGroups = self.DB.getChildrenOf(self)
         self.childrenLoaded = True
+
+    #used to load the database back into a group tree
+    #loads files not already in the database into the rootGroup
+    #should only be called on the root group
+    def initializeGroupTree(self):
+        imgDirect: str = self.directs.getOldDataDirect()
         
-    
-
-
-####### DataBase Write/Read ##########
-
-#used to load the database back into a group tree
-#loads files not already in the database into the rootGroup
-def initializeGroupTree(directoryObj: Directories) -> Group:
-    dataBaseDirect: str = directoryObj.getDataBaseDirect()
-    imgDirect: str = directoryObj.getOldDataDirect()
-    groupDirec: str = f"{dataBaseDirect}GroupData.csv"
-    itemDirec: str = f"{dataBaseDirect}ItemData.csv"
-    
-    GroupDF = pd.read_csv(groupDirec)
-    ItemDF = pd.read_csv(itemDirec)
-    
-    rootGroup = Group(directoryObj = directoryObj)
-    rootGroup.groupNum = 0
-    
-    rootGroup.loadGroupChildren()
-    
-    #get all image files 
-    fileNameList: list[str] = getAllFiles(imgDirect)
+        self.groupNum = 0
+        self.loadGroupChildren()
         
-    #do not load int files already in the database
-    listLen = len(fileNameList)
-    fileIndex = 0
-    dataBaseFileList = ItemDF["fileName"].to_numpy()
+        #get all image files 
+        fileNameList: list[str] = getAllFiles(imgDirect)
 
-    while(fileIndex < listLen):
-        if fileNameList[fileIndex] in dataBaseFileList:
-            fileNameList.pop(fileIndex)
-            listLen -=1
-        else:
-            fileIndex += 1
+        self.populateItems(fileNameList, imgDirect)
             
-    rootGroup.populateItems(fileNameList, imgDirect)
-    #rootGroup.printGroupTree()
-    
-    return rootGroup
-        
-    
-
-#helper func, makes sure that the returned group num is unique
-def getGroupNum(GroupObj, GroupDf)-> int:
-    groupNum = GroupObj.groupNum
-
-    if(groupNum == -1):
-        #get new num
-        groupNum = GroupDf["groupNumber"].max()#will return nan if df empty
-        #correct nan if groupDf is empty
-        if(pd.isna(groupNum)):
-            groupNum = 1
-        else:
-            groupNum +=1
-        GroupObj.groupNum = groupNum
-    
-    return groupNum
-
-#nearly identical to getGroupNum
-def getItemNum(ItemObj, ItemDf)-> int:#very similar to getGroupNum
-    itemNum = ItemObj.itemNum
-
-    if(itemNum == -1):
-        #get new num
-        itemNum = ItemDf["itemNumber"].max()
-        if(pd.isna(itemNum)):
-            itemNum = 1
-        else:
-            itemNum +=1
-        ItemObj.itemNum = itemNum
-
-    return itemNum
-
-
-#writes the file to the new location
-def writeNewFile(newFileName, oldFileName, oldFileDirect, newFileDirect)-> None:
-    oldFullPath = oldFileDirect + oldFileName
-    newFullPath = newFileDirect + newFileName
-    
-    if os.path.exists(oldFullPath):
-        if os.path.exists(newFileDirect):
-            if(oldFileDirect != newFileDirect):#if new location, write and delete old one
-                PIL.Image.open(oldFullPath).save(newFullPath)
-                os.remove(oldFullPath)
-            elif(oldFileName != newFileName): #if file name hasn't changed, do nothing, otherwise re-name
-                os.rename(oldFullPath, newFullPath)
-        else:
-            print(f"Failed to find folder {newFileDirect}")
-    else:
-        print(f"Failed to find file: {oldFileName}")
-
-#writes a group to the group csv, all of its items to the items csv, and writes new files
-def writeGroup(Group, GroupDf, ItemDf, parentGroupNum, oldFileDirect, newFileDirect)-> None:
-
-    childGroupNum = getGroupNum(GroupObj=Group, GroupDf=GroupDf)
-    
-    #write/update the group to the DF
-    #determine row of the group in the DF, if it exists, update it, otherwise add a new row
-    groupBool = GroupDf["groupNumber"] == childGroupNum
-    if(groupBool.any()):
-        GroupDf.loc[groupBool] = [childGroupNum, parentGroupNum, " ".join(Group.subjects), " ".join(Group.creator), " ".join(Group.tags), Group.page]
-    else:
-        GroupDf.loc[len(GroupDf)] = [childGroupNum, parentGroupNum, " ".join(Group.subjects), " ".join(Group.creator), " ".join(Group.tags), Group.page]
-
-    #write items to csv/write new file
-    for item in Group.items:
-        itemNum = getItemNum(ItemObj=item, ItemDf=ItemDf) #may want to rewrite later so that itemNum is iterated instead
-        newFileName = str(itemNum) + item.fileType
-
-        itemBool = ItemDf["itemNumber"] == itemNum
-        if(itemBool.any()):
-            ItemDf.loc[itemBool] = [itemNum, childGroupNum, newFileName]
-        else:
-            ItemDf.loc[len(ItemDf)] = [itemNum, childGroupNum, newFileName]
-        writeNewFile(newFileName=newFileName, newFileDirect=newFileDirect, oldFileName=item.fileName, oldFileDirect=oldFileDirect)
-    
-    #delete items/let garbage collect
-    Group.items = []
-
-#writes the group before recursively traversing tree
-def traverseTree(ParentGroup, GroupDf, ItemDf, parentGroupNum, oldFileDirect, newFileDirect)-> None:
-    writeGroup(ParentGroup, GroupDf, ItemDf, parentGroupNum, oldFileDirect=oldFileDirect, newFileDirect=newFileDirect)
-    #get group num
-    parentGroupNum = getGroupNum(ParentGroup, GroupDf)
-    for Child in ParentGroup.childGroups:
-        traverseTree(ParentGroup=Child, GroupDf=GroupDf, ItemDf=ItemDf, parentGroupNum=parentGroupNum, oldFileDirect = oldFileDirect, newFileDirect = newFileDirect)
-    
-    ParentGroup.childGroups = []
-    
-
-def writeTreeBoot(rootGroup, databaseDirect, oldFileDirect, newFileDirect)-> None:
-
-    ItemsDf = pd.read_csv(databaseDirect + "ItemData.csv").astype({"itemNumber" : int, "groupNumber" : int, "fileName" : str})
-    GroupDf = pd.read_csv(databaseDirect + "GroupData.csv").astype({"groupNumber" : int, "parentNumber" : int, "subjects" : str, "creators": str, "tags" : str, "pg" : int})
-
-    #the root group is not written to the database, so each of its children is 
-    #considered its own tree writeNewFile(newFileName, oldFileName, oldFileDirect, newFileDirect)-> None:
-    for groupTree in rootGroup.childGroups:
-        #rootGroupNum = getGroupNum(GroupObj=groupTree, GroupDf=GroupDf)
-
-        traverseTree(ParentGroup=groupTree, GroupDf=GroupDf, ItemDf=ItemsDf, 
-                    parentGroupNum=0, oldFileDirect=oldFileDirect, newFileDirect=newFileDirect)
-
-    rootGroup.childGroups = []
-
-    #save database
-    ItemsDf.to_csv(databaseDirect + "ItemData.csv", index=False)
-    GroupDf.to_csv(databaseDirect + "GroupData.csv", index=False)
-
-#commit the labels from object to Labels.csv
-def writeLabels(directObj: Directories, labelsObj: Labels)->None:
-
-    CSVpath: str = directObj.getDataBaseDirect() + "Labels.csv"
-
-    labelsDF: pd.DataFrame = pd.DataFrame(columns=["subjects", "creators", "tags"])
-
-    #write each kind of label to the csv, NOTE: I am doing it this way to avoid writing nans to the csv
-    #creators
-    for rowIndex in range(0, len(labelsObj.creatorLabels)):
-        labelsDF.loc[rowIndex, "creators"] = labelsObj.creatorLabels[rowIndex]
-
-    #subjects
-    for rowIndex in range(0, len(labelsObj.subjectLabels)):
-        labelsDF.loc[rowIndex, "subjects"] = labelsObj.subjectLabels[rowIndex]
-
-    #tags
-    for rowIndex in range(0, len(labelsObj.tagLabels)):
-        labelsDF.loc[rowIndex, "tags"] = labelsObj.tagLabels[rowIndex]
-
-    labelsDF.to_csv(CSVpath, index=False)
-    
-
-            
-
 #return an array of all files in the directory
 def getAllFiles(directory)-> list[str]:
     PathObj = Path(directory)
     validFileTypes = [".jpg", ".jpeg", ".png"]
     return [f.name for f in PathObj.iterdir() if (f.is_file() and (f.suffix.lower() in validFileTypes))]
-
-
