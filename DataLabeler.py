@@ -1,12 +1,18 @@
 """
 Author: Trey Simmons
 Created: 3/17/26
-Date of Last Edit: 9/29/26
-Edit: Added open/set the new/old image folders, and set the database folder tool bar options. Also added handling for window close protocol.
+Date of Last Edit: 10/7/26
+Edits: 
+Bugs: 
+Found bug where item widgets would stop rendering if user scrolled down far enough, it was due to the frame size limitations 
+(seemed to be around 30,000 pixels down). Changed the item widgets to be managed as canvas windows rather than being placed in the frame directly.
+confirmed can scroll all the way to the bottom using 2000 images.
 
-Description: This is the main file for the data labeling program. It contains the GUI and the main function that run the program. 
+Refactor: Removed old code snippets (commented out) related to the cvs data base
+
+
+
 """
-
 
 import bisect
 import tkinter as tk
@@ -176,8 +182,9 @@ class sortPage:
         for childIndex in range(0, len(self.parentGroup.childGroups)):
             child = self.parentGroup.childGroups[childIndex]
             newChildWidget = GroupWidget(ParentWidget = self.RightScrollFrame.InnerFrame, Group = child, LabelsObj=self.LabelsObj, maxItemHeight=900, maxItemWidth=900, itemPack="top")
-            #self.RightScrollFrame.InnerFrame.rowconfigure(childIndex, weight=1)
+
             newChildWidget.grid(row=childIndex, column=0, sticky="nsew")
+            newChildWidget.setItemWidgets()
             newChildWidget.bind("<Button-1>", self.selectChildWidget)
             self.ChildGroupWidgets.append(newChildWidget)
 
@@ -188,7 +195,6 @@ class sortPage:
     def updateRight(self)->None:
         groupIndex = 0
         while(groupIndex < len(self.parentGroup.childGroups)):
-
             #check if the current item has a corresponding widget
             foundWidgetIndex = 0
             foundWidgetFlag = False
@@ -223,8 +229,6 @@ class sortPage:
              
         #clean up work, re-grid the remaining widgets
         for index in range(0, childWidgetLen):
-           #self.RightScrollFrame.InnerFrame.rowconfigure(index, weight=1)
-           #self.RightScrollFrame.InnerFrame.columnconfigure(index, weight=1)
            self.ChildGroupWidgets[index].grid(row=index, column=0, sticky="nsew")
 
         #reset selected
@@ -274,11 +278,6 @@ class sortPage:
     #save all of the changes to the database
     def commitGroups(self)-> None:
         #write to the db
-        """
-        LB.writeTreeBoot(rootGroup=self.RootGroup, 
-                        databaseDirect=self.DirectoriesObj.getDataBaseDirect(),
-                        oldFileDirect=self.DirectoriesObj.getOldDataDirect(),
-                        newFileDirect=self.DirectoriesObj.getNewDataDirect())"""
         self.DataBaseObj.writeGroups(self.RootGroup)
 
         self.DataBaseObj.writeLabels(labelsObj=self.LabelsObj)
@@ -375,6 +374,9 @@ class GroupWidget(tk.Frame):
         self.ItemScrollFrame: ScrollableFrame = ScrollableFrame(self, width=width, height=height)
         #bind the callback, this allows us to add/subtract item widgets when the user scrolls
         self.ItemScrollFrame.setScrollCallBack(self.scheduleItemRender)
+        #item widgets are canvas windows, so the scroll region is managed here rather than from the inner frame's size
+        self.ItemScrollFrame.InnerFrame.unbind("<Configure>")
+        self.ItemScrollFrame.InnerCanvas.bind("<Configure>", lambda e: self.scheduleItemRender(), add="+")
 
         def labelKindSelected(event)-> None:
             comboBox = event.widget
@@ -479,23 +481,28 @@ class GroupWidget(tk.Frame):
     ######## Update Widget Functions ########
 
     def deleteItemWidgets(self)-> None:
-        #inefficient, need to rewrite later
         for itemWidget in self.ItemWidgetList:
-            itemWidget.destroy()
+            self.removeItemWidget(itemWidget)
 
         self.ItemWidgetList = []
 
+    def removeItemWidget(self, widget)-> None:
+        if(widget.canvasId is not None):
+            self.ItemScrollFrame.InnerCanvas.delete(widget.canvasId)
+            widget.canvasId = None
+        widget.destroy()
 
-    #iterated through the items and item widgets, deleting or creating widgets as needed to match the items
+
+    #creates a new set of item widgets based on the current items in the group, then calls to render them
     def setItemWidgets(self)-> None:
-        for _ in range(len(self.ItemWidgetList)):
-            self.ItemWidgetList.pop(0).destroy()
+        self.deleteItemWidgets()
 
+        """
         for x in range(self.maxItemWidgets):
             if(x > len(self.Group.items)):
                 break
-            newItemWidget = ItemWidget(self.ItemScrollFrame.InnerFrame, self, None)
-            self.ItemWidgetList.append(newItemWidget)
+            newItemWidget = ItemWidget(self.ItemScrollFrame.InnerCanvas, self, None)
+            self.ItemWidgetList.append(newItemWidget)"""
 
         self.setItemWidgetYPos()
         self.renderItemWidgets()
@@ -520,8 +527,7 @@ class GroupWidget(tk.Frame):
         #set Scroll Height
         self.scrollHeight = currPos
 
-        #update the scroll frames inner frame/canvas height
-        self.ItemScrollFrame.InnerFrame.configure(height=currPos)
+        #set canvas inner size/scroll region
         self.ItemScrollFrame.InnerCanvas.configure(scrollregion=(0, 0, 1, currPos))
 
 
@@ -529,6 +535,10 @@ class GroupWidget(tk.Frame):
     #updates the scroll region if necessary, what items are loaded into widgets, and widget placement in the scroll region
     def renderItemWidgets(self):
         self.itemRenderPending = False
+
+        #grow item widget pool as needed/initialize widgets for new groups
+        while(len(self.ItemWidgetList) < min(self.maxItemWidgets, len(self.Group.items))):
+            self.ItemWidgetList.append(ItemWidget(self.ItemScrollFrame.InnerCanvas, self, None))
 
         #get scroll pos
         topPerc, _ = self.ItemScrollFrame.InnerCanvas.yview()
@@ -568,12 +578,25 @@ class GroupWidget(tk.Frame):
                 widgetForIndex[itemIndex] = widget
 
         #any widgets left over are past the end of the item list, hide them
+        canvas = self.ItemScrollFrame.InnerCanvas
         for widget in freeWidgets:
-            widget.place_forget()
+            if(widget.canvasId is not None):
+                canvas.itemconfigure(widget.canvasId, state="hidden")
 
         #place the widgets at their corresponding positions
+        canvasWidth = max(1, canvas.winfo_width())
         for itemIndex, widget in widgetForIndex.items():
-            widget.place(x=0, y = self.itemWidgetYPos[itemIndex], relwidth=1)
+            height = 0
+            if(itemIndex < len(self.itemWidgetYPos) - 1):
+                height = self.itemWidgetYPos[itemIndex + 1] - self.itemWidgetYPos[itemIndex]
+            else:
+                height = widget.item.getHeight() + 50
+
+            if(widget.canvasId is None):
+                widget.canvasId = canvas.create_window(0, self.itemWidgetYPos[itemIndex], window=widget, anchor="nw", width=canvasWidth, height=height)
+            else:
+                canvas.coords(widget.canvasId, 0, self.itemWidgetYPos[itemIndex])
+                canvas.itemconfigure(widget.canvasId, state="normal", width=canvasWidth, height=height)
 
         
 
@@ -596,13 +619,13 @@ class GroupWidget(tk.Frame):
     #adjusts the minItemIndex to better fit the widget list
     #ex: if minItemIndex is 3, maxItemWidgets = 5, and the last index of the item list is 5, then set minItemIndex to 0
     #so that the entire widget list is shown
-    def adjustMinItem(self)-> None:
-        adjustment: int = (len(self.Group.items) -1) - (self.minItemIndex + self.maxItemWidgets -1)
+    #def adjustMinItem(self)-> None:
+    #    adjustment: int = (len(self.Group.items) -1) - (self.minItemIndex + self.maxItemWidgets -1)
 
-        if(adjustment < 0):
-            self.minItemIndex += adjustment
-            if(self.minItemIndex < 0):
-                self.minItemIndex = 0
+    #    if(adjustment < 0):
+    #        self.minItemIndex += adjustment
+    #        if(self.minItemIndex < 0):
+    #            self.minItemIndex = 0
         
         
 
@@ -613,7 +636,8 @@ class ItemWidget(tk.Frame):
         super().__init__(parent, bg="lightblue", bd=2, relief="groove")
         self.groupWidget = groupWidget
         self.item = item
-
+        self.canvasId = None
+    
         self.WidgetLabel = tk.Label(self)
         self.WidgetLabel.pack(padx = 5, pady=5, fill="y", expand=True)
 
@@ -632,7 +656,7 @@ class ItemWidget(tk.Frame):
         
         IMG = self.item.getIMG()
         if(IMG != None):
-            self.WidgetLabel.config(image=IMG, text="", width=self.item.maxItemHeight)
+            self.WidgetLabel.config(image=IMG, text="", height=self.item.maxItemHeight, background="lightblue")
             self.WidgetLabel.image = IMG
         
             self.text.config(text=self.item.fileName)
@@ -641,7 +665,8 @@ class ItemWidget(tk.Frame):
             self.WidgetLabel.bind("<ButtonPress-1>", self.onDragStart)
             self.bind("<ButtonPress-1>", self.onDragStart)
         else:
-            self.WidgetLabel.config(text=f"Unable to find image: {self.item.directory}{self.item.fileName}", width=self.item.maxItemHeight)
+            self.height = self.item.maxItemHeight
+            self.WidgetLabel.config(text=f"Unable to find image: {self.item.directory}{self.item.fileName}", height=self.height)
 
 
 

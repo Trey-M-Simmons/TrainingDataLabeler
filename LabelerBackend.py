@@ -145,8 +145,13 @@ class Item:
         #if the item has not been rendered yet then do so
         if((self.IMG == None) and (os.path.exists(self.directory + self.fileName))):
             self.IMG = Image.open(self.directory + self.fileName)
-            #resize
-            self.IMG.thumbnail((self.maxItemWidth, self.maxItemHeight), Image.Resampling.LANCZOS) 
+            #resize, currently designed so that all images are the same height 
+            heightAdjuPerc = float(self.maxItemHeight) / float(self.IMG.size[1])
+            newWidth = int(self.IMG.size[0] * heightAdjuPerc)
+            self.IMG = self.IMG.resize((newWidth, self.maxItemHeight), Image.Resampling.LANCZOS)
+
+            #self.IMG.thumbnail((self.maxItemWidth, self.maxItemHeight), Image.Resampling.LANCZOS) 
+
             self.IMG = ImageTk.PhotoImage(self.IMG)
 
         return self.IMG
